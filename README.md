@@ -10,7 +10,7 @@ O backend central é um projeto separado, baseado em Laravel e executado em serv
 
 O uso de uma aplicação desktop oferece a base necessária para a operação no terminal de caixa e para futuras integrações com periféricos. A arquitetura será preparada para permitir operação local e sincronização posterior durante indisponibilidades temporárias de internet.
 
-A infraestrutura de persistência local está em implementação inicial. Operação offline e sincronização continuam sendo etapas futuras.
+A infraestrutura de persistência local com SQLite está implementada. Operação offline e sincronização continuam sendo etapas futuras.
 
 ## Arquitetura conceitual
 
@@ -28,7 +28,7 @@ LucraOne PDV Java
         +-- Interface de caixa
 ```
 
-O desenho apresenta a direção planejada. Todas as integrações e capacidades abaixo do PDV são futuras.
+O desenho apresenta a direção arquitetural do produto. A persistência local já está implementada; operação offline, sincronização, periféricos e demais integrações continuam planejadas para fases futuras.
 
 ## Tecnologias
 
@@ -108,15 +108,18 @@ O aplicativo desktop é desenvolvido e testado localmente, principalmente em Win
 
 ## Estado atual
 
-Fundação inicial concluída.
+Fundação e Fase 2 — Persistência local concluídas.
 
 Hoje o projeto possui:
 
 - aplicação JavaFX executável;
 - Maven Wrapper;
 - arquitetura inicial em camadas;
-- infraestrutura SQLite local com Flyway e JDBC;
-- teste automatizado básico;
+- persistência local com SQLite em `%LOCALAPPDATA%`;
+- migrations versionadas com Flyway;
+- acesso a dados com JDBC puro;
+- transações JDBC com commit e rollback;
+- testes automatizados de persistência com bancos temporários;
 - build local funcional.
 
 ## Ainda não implementado
@@ -139,13 +142,12 @@ Hoje o projeto possui:
 
 Este é um roadmap inicial e pode evoluir:
 
-1. Persistência local com SQLite
-2. Configuração do terminal
-3. Integração com API LucraOne
-4. Autenticação
-5. Sincronização de catálogo
-6. Núcleo de venda local
-7. Operação offline
-8. Periféricos
-9. Empacotamento desktop
-10. Integração fiscal futura
+1. Provisionamento e configuração do terminal
+2. Integração com API LucraOne
+3. Autenticação
+4. Sincronização de catálogo
+5. Núcleo de venda local
+6. Operação offline
+7. Periféricos
+8. Empacotamento desktop
+9. Integração fiscal futura

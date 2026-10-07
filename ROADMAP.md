@@ -1,8 +1,8 @@
 # LucraOne PDV Java — Roadmap
 
 **Data inicial:** 2026-10-07
-**Estado:** Fundação concluída.
-**Commit base:** `ad78522759eba6a5e9c67c9bb8524a98a236345b`
+**Estado:** Fundação e Fase 2 — Persistência local concluídas.
+**Commit base:** `769dc71c37a9f4c69b896c2e01dcf4830ad81981`
 
 Este documento registra a direção técnica inicial do PDV. Ele é versionável, mas não substitui decisões de produto, fiscais ou de operação. As fases futuras só começam após aprovação explícita.
 
@@ -69,7 +69,7 @@ Alternativas consideradas:
 - **SQL Server Express:** robusto, porém pesado e operacionalmente desnecessário para cada terminal.
 - **Outros bancos embarcados:** só devem ser considerados se trouxerem uma necessidade concreta não atendida por SQLite.
 
-Quando a persistência começar, serão usados **Flyway** para migrations locais e **JDBC puro com repositórios pequenos** para acesso a dados. JDBC mantém comportamento e SQL previsíveis em SQLite; JDBI pode ser reavaliado se o mapeamento repetitivo se tornar um custo real. Hibernate/JPA não é a escolha inicial para esse núcleo transacional local.
+A persistência local utiliza **Flyway** para migrations locais e **JDBC puro com repositórios pequenos** para acesso a dados. JDBC mantém comportamento e SQL previsíveis em SQLite; JDBI pode ser reavaliado se o mapeamento repetitivo se tornar um custo real. Hibernate/JPA não é a escolha inicial para esse núcleo transacional local.
 
 ### Classificação de dados no SQLite
 
@@ -103,7 +103,7 @@ O banco e os artefatos operacionais não ficarão no repositório, junto do cód
   config\
 ```
 
-O caminho final poderá ser encapsulado por uma classe ou configuração futura, mas esta é a convenção arquitetural. Nenhum diretório é criado nesta etapa.
+O caminho final poderá ser encapsulado por uma classe ou configuração futura, mas esta é a convenção arquitetural. A aplicação cria e utiliza essa estrutura operacional local durante a inicialização da persistência.
 
 ## Offline-first e sincronização
 
@@ -170,17 +170,20 @@ Testes devem começar cedo com unidade para domínio e aplicação, integração
 - **Dependências:** nenhuma.
 - **Base:** `ad78522759eba6a5e9c67c9bb8524a98a236345b`.
 
-### Fase 2 — Persistência local
+### Fase 2 — Persistência local ✅
 
-**Planejada · próxima recomendação**
+**Concluída ✅**
 
 - **Objetivo:** introduzir armazenamento local versionado, sem regra de venda ou integração remota.
 - **Entregas:** SQLite, driver JDBC SQLite, Flyway, localização em `%LOCALAPPDATA%`, criação/abertura de banco, migrations, transações, repositórios base somente quando necessários, testes de integração e definição de estratégia básica de recuperação/backup.
 - **Fora de escopo:** catálogo, login, sync, vendas, pagamentos, API e fiscal.
 - **Aceite:** banco novo e banco atualizado chegam ao schema esperado de forma repetível; testes isolados passam.
 - **Dependências:** decisões aprovadas de SQLite, Flyway, JDBC e diretório operacional; definição da estratégia de backup e recuperação.
+- **Base:** `769dc71c37a9f4c69b896c2e01dcf4830ad81981`.
 
 ### Fase 3 — Provisionamento e configuração do terminal
+
+**Planejada · próxima prioridade**
 
 - **Objetivo:** definir a identidade local e a configuração operacional inicial do terminal.
 - **Entregas:** modelo de `installation_id`, configuração bootstrap, armazenamento seguro de segredos e diagnóstico básico.

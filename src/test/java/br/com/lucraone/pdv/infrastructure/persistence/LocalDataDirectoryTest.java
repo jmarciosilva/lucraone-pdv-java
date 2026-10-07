@@ -29,6 +29,13 @@ class LocalDataDirectoryTest {
     }
 
     @Test
+    void resolvesTheBootstrapConfigurationFileInTheConfigDirectory() {
+        LocalDataDirectory directory = new LocalDataDirectory(() -> temporaryDirectory.toString());
+
+        assertEquals(directory.configDirectory().resolve("bootstrap.properties"), directory.bootstrapConfigurationFile());
+    }
+
+    @Test
     void createsTheOperationalDirectories() {
         LocalDataDirectory directory = new LocalDataDirectory(() -> temporaryDirectory.toString());
 

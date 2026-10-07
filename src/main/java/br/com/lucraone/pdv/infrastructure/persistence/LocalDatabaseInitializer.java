@@ -14,7 +14,7 @@ public final class LocalDatabaseInitializer {
         this(new LocalDataDirectory());
     }
 
-    LocalDatabaseInitializer(LocalDataDirectory localDataDirectory) {
+    public LocalDatabaseInitializer(LocalDataDirectory localDataDirectory) {
         this.localDataDirectory = Objects.requireNonNull(localDataDirectory, "localDataDirectory must not be null");
     }
 

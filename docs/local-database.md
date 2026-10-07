@@ -16,7 +16,7 @@ O banco nunca é criado no repositório, junto do JAR, em `src/` ou em compartil
 
 ## Inicialização e migrations
 
-A inicialização cria os diretórios operacionais necessários, abre o banco SQLite e aplica as migrations em `src/main/resources/db/migration` por meio do Flyway. O Flyway mantém a tabela técnica `flyway_schema_history`; não há tabelas de negócio nesta fase.
+A inicialização cria os diretórios operacionais necessários, abre o banco SQLite e aplica as migrations em `src/main/resources/db/migration` por meio do Flyway. O Flyway mantém a tabela técnica `flyway_schema_history`. A migration V2 adiciona `installation` e `terminal_provisioning`, descritas em [Identidade e configuração do terminal](terminal-configuration.md). Não há tabelas de negócio.
 
 As conexões da aplicação configuram `foreign_keys = ON`, `busy_timeout = 5000` e `journal_mode = WAL`. O timeout reduz falhas transitórias por contenção local. WAL permite leitores durante uma escrita, mantendo o modelo de um banco por terminal; ele não torna o banco apropriado para compartilhamento SMB/NAS.
 

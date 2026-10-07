@@ -81,6 +81,10 @@ O banco SQLite de cada terminal é inicializado em `%LOCALAPPDATA%\LucraOne\PDV\
 
 Os testes usam bancos temporários e não acessam o banco local do usuário. A política inicial de backup e recuperação está documentada em [Persistência local](docs/local-database.md).
 
+## Identidade e configuração do terminal
+
+Na inicialização, o PDV garante um `installation_id` local e estável, informa se o terminal está provisionado e lê a configuração bootstrap opcional em `%LOCALAPPDATA%\LucraOne\PDV\config\bootstrap.properties`, sem realizar chamadas ao backend. Detalhes em [Identidade e configuração do terminal](docs/terminal-configuration.md).
+
 ## Estrutura do projeto
 
 ```text

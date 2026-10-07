@@ -16,6 +16,7 @@ public final class LocalDataDirectory {
     private static final String APPLICATION_VENDOR = "LucraOne";
     private static final String APPLICATION_NAME = "PDV";
     private static final String DATABASE_FILE = "lucraone-pdv.db";
+    private static final String BOOTSTRAP_CONFIGURATION_FILE = "bootstrap.properties";
 
     private final Supplier<String> localAppDataSupplier;
 
@@ -41,6 +42,10 @@ public final class LocalDataDirectory {
 
     public Path databasePath() {
         return dataDirectory().resolve(DATABASE_FILE);
+    }
+
+    public Path bootstrapConfigurationFile() {
+        return configDirectory().resolve(BOOTSTRAP_CONFIGURATION_FILE);
     }
 
     public void prepareOperationalDirectories() {

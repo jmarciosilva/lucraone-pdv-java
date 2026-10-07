@@ -11,6 +11,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.FlywayException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -75,6 +76,41 @@ class LocalDatabaseInitializerTest {
         assertTrue(Files.exists(directory.databasePath()));
         try (Connection connection = connections.openConnection()) {
             assertEquals(1, queryInteger(connection, "SELECT COUNT(*) FROM preexisting_probe"));
+        }
+    }
+
+    @Test
+    void migratesAVersionOneDatabaseToTheCurrentSchemaPreservingData() throws Exception {
+        LocalDataDirectory directory = new LocalDataDirectory(() -> temporaryDirectory.toString());
+        directory.prepareOperationalDirectories();
+        SqliteConnectionFactory connections = new SqliteConnectionFactory(directory.databasePath());
+        Flyway.configure()
+                .dataSource(connections.jdbcUrl(), null, null)
+                .locations("classpath:db/migration")
+                .target("1")
+                .cleanDisabled(true)
+                .load()
+                .migrate();
+
+        String versionOneHistory;
+        try (Connection connection = connections.openConnection(); Statement statement = connection.createStatement()) {
+            statement.execute("CREATE TABLE version_one_probe (value TEXT NOT NULL)");
+            statement.execute("INSERT INTO version_one_probe(value) VALUES ('kept')");
+            versionOneHistory = queryString(connection,
+                    "SELECT checksum || '|' || installed_on FROM flyway_schema_history WHERE version = '1'");
+        }
+
+        new LocalDatabaseInitializer(directory).initialize();
+
+        try (Connection connection = connections.openConnection()) {
+            assertEquals(1, queryInteger(connection, "SELECT COUNT(*) FROM version_one_probe WHERE value = 'kept'"));
+            assertEquals(versionOneHistory, queryString(connection,
+                    "SELECT checksum || '|' || installed_on FROM flyway_schema_history WHERE version = '1'"));
+            assertEquals(1, queryInteger(connection,
+                    "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '2' AND success = 1"));
+            assertEquals(2, queryInteger(connection,
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('installation', 'terminal_provisioning')"));
+            assertEquals(0, queryInteger(connection, "SELECT COUNT(*) FROM installation"));
         }
     }
 

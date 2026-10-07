@@ -1,0 +1,22 @@
+# Build output
+target/
+
+# IDE metadata
+.idea/
+*.iml
+.project
+.classpath
+.settings/
+
+# Visual Studio Code local settings
+.vscode/settings.json
+
+# Windows and temporary files
+Thumbs.db
+Desktop.ini
+*.tmp
+*.temp
+*~
+
+# Logs
+*.log

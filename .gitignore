@@ -20,3 +20,10 @@ Desktop.ini
 
 # Logs
 *.log
+
+# Local SQLite databases and write-ahead log files
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3

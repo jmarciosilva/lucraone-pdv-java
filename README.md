@@ -10,7 +10,7 @@ O backend central é um projeto separado, baseado em Laravel e executado em serv
 
 O uso de uma aplicação desktop oferece a base necessária para a operação no terminal de caixa e para futuras integrações com periféricos. A arquitetura será preparada para permitir operação local e sincronização posterior durante indisponibilidades temporárias de internet.
 
-Persistência local, operação offline e sincronização ainda não estão implementadas nesta fundação.
+A infraestrutura de persistência local está em implementação inicial. Operação offline e sincronização continuam sendo etapas futuras.
 
 ## Arquitetura conceitual
 
@@ -37,8 +37,10 @@ O desenho apresenta a direção planejada. Todas as integrações e capacidades 
 - Maven
 - Maven Wrapper
 - JUnit 5
+- SQLite JDBC
+- Flyway
 
-SQLite, integração com API, sincronização e recursos fiscais pertencem ao planejamento futuro e não fazem parte da implementação atual.
+Integração com API, sincronização e recursos fiscais pertencem ao planejamento futuro e não fazem parte da implementação atual.
 
 ## Requisitos
 
@@ -72,6 +74,12 @@ No Windows PowerShell, na raiz do repositório:
 ```
 
 O comando gera o artefato Maven de validação. Ainda não existe instalador para Windows.
+
+## Persistência local
+
+O banco SQLite de cada terminal é inicializado em `%LOCALAPPDATA%\LucraOne\PDV\data\lucraone-pdv.db`. As migrations são executadas automaticamente pelo Flyway antes de o aplicativo ficar disponível.
+
+Os testes usam bancos temporários e não acessam o banco local do usuário. A política inicial de backup e recuperação está documentada em [Persistência local](docs/local-database.md).
 
 ## Estrutura do projeto
 
@@ -107,6 +115,7 @@ Hoje o projeto possui:
 - aplicação JavaFX executável;
 - Maven Wrapper;
 - arquitetura inicial em camadas;
+- infraestrutura SQLite local com Flyway e JDBC;
 - teste automatizado básico;
 - build local funcional.
 
@@ -114,8 +123,6 @@ Hoje o projeto possui:
 
 - autenticação;
 - integração com backend LucraOne;
-- SQLite;
-- persistência local;
 - sincronização;
 - produtos;
 - carrinho;

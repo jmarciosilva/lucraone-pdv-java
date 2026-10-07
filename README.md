@@ -112,7 +112,7 @@ O aplicativo desktop é desenvolvido e testado localmente, principalmente em Win
 
 ## Estado atual
 
-Fundação e Fase 2 — Persistência local concluídas.
+Fundação, Fase 2 — Persistência local e Fase 3 — Provisionamento e configuração do terminal concluídas.
 
 Hoje o projeto possui:
 
@@ -120,10 +120,15 @@ Hoje o projeto possui:
 - Maven Wrapper;
 - arquitetura inicial em camadas;
 - persistência local com SQLite em `%LOCALAPPDATA%`;
-- migrations versionadas com Flyway;
+- migrations versionadas com Flyway, incluindo a V2 de identidade do terminal;
 - acesso a dados com JDBC puro;
 - transações JDBC com commit e rollback;
-- testes automatizados de persistência com bancos temporários;
+- `installation_id` local persistente;
+- estado de provisionamento do terminal, ainda sem provisionamento remoto;
+- configuração bootstrap não secreta em `bootstrap.properties`;
+- proteção de segredos com DPAPI no Windows;
+- diagnóstico local do terminal;
+- testes automatizados com bancos temporários;
 - build local funcional.
 
 ## Ainda não implementado
@@ -146,12 +151,12 @@ Hoje o projeto possui:
 
 Este é um roadmap inicial e pode evoluir:
 
-1. Provisionamento e configuração do terminal
-2. Integração com API LucraOne
-3. Autenticação
-4. Sincronização de catálogo
-5. Núcleo de venda local
-6. Operação offline
+1. Contrato e conectividade com a API
+2. Autenticação e sessão operacional
+3. Catálogo e preços locais
+4. Núcleo transacional de vendas
+5. Pagamentos e caixa
+6. Sincronização e resiliência offline
 7. Periféricos
-8. Empacotamento desktop
-9. Integração fiscal futura
+8. Empacotamento e operação Windows
+9. Fiscal futura

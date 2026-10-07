@@ -1,8 +1,8 @@
 # LucraOne PDV Java — Roadmap
 
 **Data inicial:** 2026-10-07
-**Estado:** Fundação e Fase 2 — Persistência local concluídas.
-**Commit base:** `769dc71c37a9f4c69b896c2e01dcf4830ad81981`
+**Estado:** Fundação, Fase 2 — Persistência local e Fase 3 — Provisionamento e configuração do terminal concluídas.
+**Commit base:** `bc28f68fe0b05239df7e129ae8cb7f73113ab924`
 
 Este documento registra a direção técnica inicial do PDV. Ele é versionável, mas não substitui decisões de produto, fiscais ou de operação. As fases futuras só começam após aprovação explícita.
 
@@ -88,7 +88,7 @@ A configuração seguirá uma combinação:
 
 - arquivo de bootstrap não secreto para parâmetros iniciais, como URL do ambiente;
 - SQLite para estado operacional, terminal provisionado e checkpoints;
-- armazenamento protegido do Windows para tokens e material sensível; DPAPI é uma opção futura e não é dependência da Fase 2;
+- armazenamento protegido do Windows para tokens e material sensível, com DPAPI no escopo do usuário Windows atual, disponível desde a Fase 3;
 - `Preferences API` somente para preferências não críticas do usuário, se necessário.
 
 ### Diretório operacional local aprovado
@@ -153,7 +153,7 @@ Venda e pagamento devem permanecer distintos: uma venda pode ter diversos pagame
 
 ## Segurança, observabilidade e testes
 
-O mínimo seguro inclui não armazenar senhas em SQLite, proteger futuramente tokens no armazenamento do sistema operacional, restringir permissões do diretório da aplicação, evitar dados sensíveis em logs e manter retenção controlada de clientes em cache. DPAPI é uma opção futura para tokens e segredos, não uma dependência da Fase 2. Criptografia do banco deve ser decidida conforme a classificação de dados e a política operacional; se adotada, a gestão da chave é tão importante quanto a cifra.
+O mínimo seguro inclui não armazenar senhas em SQLite, proteger futuramente tokens no armazenamento do sistema operacional, restringir permissões do diretório da aplicação, evitar dados sensíveis em logs e manter retenção controlada de clientes em cache. A proteção com DPAPI no escopo do usuário Windows atual está disponível desde a Fase 3 para tokens e segredos futuros. Criptografia do banco deve ser decidida conforme a classificação de dados e a política operacional; se adotada, a gestão da chave é tão importante quanto a cifra.
 
 Logs locais rotativos devem registrar nível, versão do aplicativo, correlação de sync, falhas de hardware e erros sem credenciais ou payloads sensíveis. Deve existir material de diagnóstico para suporte, sem telemetria automática não aprovada.
 
@@ -181,17 +181,20 @@ Testes devem começar cedo com unidade para domínio e aplicação, integração
 - **Dependências:** decisões aprovadas de SQLite, Flyway, JDBC e diretório operacional; definição da estratégia de backup e recuperação.
 - **Base:** `769dc71c37a9f4c69b896c2e01dcf4830ad81981`.
 
-### Fase 3 — Provisionamento e configuração do terminal
+### Fase 3 — Provisionamento e configuração do terminal ✅
 
-**Planejada · próxima prioridade**
+**Concluída ✅**
 
 - **Objetivo:** definir a identidade local e a configuração operacional inicial do terminal.
 - **Entregas:** modelo de `installation_id`, configuração bootstrap, armazenamento seguro de segredos e diagnóstico básico.
 - **Fora de escopo:** login completo, catálogo e venda.
 - **Aceite:** terminal pode ser identificado, reaberto e diagnosticado sem expor segredos.
 - **Dependências:** Fase 2 e definição de provisionamento pelo backend.
+- **Base:** `bc28f68fe0b05239df7e129ae8cb7f73113ab924`.
 
 ### Fase 4 — Contrato e conectividade com a API
+
+**Planejada · próxima prioridade**
 
 - **Objetivo:** validar o contrato mínimo entre PDV e backend antes de fluxos comerciais.
 - **Entregas:** especificação versionada, cliente HTTP, tratamento de timeout/erros e testes de contrato.

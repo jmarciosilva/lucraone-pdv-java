@@ -18,7 +18,7 @@ No Linux, o banco fica em `$XDG_DATA_HOME/LucraOne/PDV/data/lucraone-pdv.db`, ou
 
 ## Inicialização e migrations
 
-A inicialização cria os diretórios operacionais necessários, abre o banco SQLite e aplica as migrations em `src/main/resources/db/migration` por meio do Flyway. O Flyway mantém a tabela técnica `flyway_schema_history`. A migration V2 adiciona `installation` e `terminal_provisioning`, descritas em [Identidade e configuração do terminal](terminal-configuration.md). Não há tabelas de negócio.
+A inicialização cria os diretórios operacionais necessários, abre o banco SQLite e aplica as migrations em `src/main/resources/db/migration` por meio do Flyway. O Flyway mantém a tabela técnica `flyway_schema_history`. A migration V2 adiciona `installation` e `terminal_provisioning`, descritas em [Identidade e configuração do terminal](terminal-configuration.md). A V3 adiciona `terminal_validation`: geração aleatória da credencial, IDs da instalação/terminal/filial, identidade do backend e instante da validação online. Não contém token, senha, pairing code, hash do token ou blob secreto. Não há tabelas de negócio.
 
 As conexões da aplicação configuram `foreign_keys = ON`, `busy_timeout = 5000` e `journal_mode = WAL`. O timeout reduz falhas transitórias por contenção local. WAL permite leitores durante uma escrita, mantendo o modelo de um banco por terminal; ele não torna o banco apropriado para compartilhamento SMB/NAS.
 
@@ -35,3 +35,9 @@ Ainda não há backup automático. Antes de uma migration de risco, o processo f
 Não é seguro copiar apenas `lucraone-pdv.db` enquanto houver escrita em modo WAL. Uma estratégia de cópia por arquivo precisa considerar os arquivos `-wal` e `-shm`; uma estratégia baseada na API de backup do SQLite é preferível.
 
 Se uma migration falhar, a aplicação não executa clean, não exclui o arquivo e não recria automaticamente o banco. O arquivo e o histórico de migration devem ser preservados para diagnóstico e recuperação. Um banco suspeito de corrupção também não deve ser descartado automaticamente, especialmente quando no futuro puder conter transações ainda não sincronizadas. Restauração, quarentena e suporte operacional serão definidos antes de haver dados de negócio locais.
+
+## Validação local da migration V3
+
+Antes da aplicação da V3 no banco operacional de desenvolvimento, foi criado backup online com a API SQLite, incluindo o estado WAL, em `LucraOne/PDV/backups/lucraone-pdv-before-fase5-<timestamp>.db`. Backup e original passaram em `PRAGMA integrity_check`. Flyway aplicou V3 preservando V1/V2 e o installation_id; o banco original foi mantido. Não há backup automático implementado no aplicativo.
+
+A evidência de validação é invalidada de forma durável antes de uma chamada autenticada ou de re-pairing. Isso impede reutilizar prova anterior após rejeição, queda do processo ou falha ao remover credencial. Ver [política de autenticação](authentication-session.md).

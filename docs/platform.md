@@ -1,7 +1,7 @@
 # Plataforma e armazenamento seguro
 
 Pré-requisito técnico multiplataforma antes da Fase 5, sem nova fase numerada.
-Fase 4: CONCLUÍDA. Fase 5: PRÓXIMA, NÃO INICIADA.
+Fase 4: CONCLUÍDA. Fase 5: EM ANDAMENTO / PARCIAL; operador bloqueado por contrato backend ausente.
 
 ## OperatingSystem e PlatformPaths
 
@@ -46,8 +46,8 @@ item bloqueado, falha ou SO desconhecido causam erro. Nenhum fallback plaintext,
 chave hardcoded, senha fixa, properties, SQLite ou chmod isolado é permitido.
 
 A factory única seleciona WindowsSecretStore, LinuxSecretStore ou o limite MacOsSecretStore.
-A apresentação não conhece stores concretos. MachineCredential não foi conectada ao store.
-Nenhum pairing/backend real, token real, autenticação, sessão ou migration nova foi criado/usado.
+A apresentação não conhece stores concretos. A Fase 5 parcial conecta MachineCredential ao store por uma porta de application.
+Nenhum pairing/backend real ou token real foi usado. O pré-requisito original não implementou autenticação ou migration de autenticação; a composição da Fase 5 está descrita ao final.
 
 ## WindowsSecretStore
 
@@ -114,7 +114,7 @@ nos critérios deste pré-requisito não significa autenticação macOS pronta.
 
 Testes guardam independência de domain/application, variáveis por adapter, consulta de
 SO centralizada, apresentação sem stores concretos e cliente HTTP portátil. API da Fase 4
-permanece intacta. Sem novos módulos, framework ou migration de autenticação.
+permanece intacta. Sem novos módulos ou framework. A Fase 5 parcial adiciona somente a V3 de evidência não secreta de validação.
 
 Offline é requisito oficial: internet temporariamente indisponível não deve impedir
 vendas elegíveis com dados e meios locais. SQLite fundamenta continuidade; catálogo/preço
@@ -148,3 +148,9 @@ env DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/lucraone-no-such-bus \
 
 ITs são opt-in, fora da suíte padrão, sem backend/Internet/segredos reais.
 Windows e macOS precisam de validação real nos respectivos hosts.
+
+## Composição na Fase 5 parcial
+
+`SecretStoreMachineCredentialRepository` serializa o envelope versionado apenas em memória e o persiste dentro do SecretStore. `LazySecretStore` inicia o provider no worker; falha de inicialização é indisponibilidade explícita, nunca chave ausente. A pré-verificação do pairing faz save/load/delete de uma chave sintética única e confirma cleanup; não promete disponibilidade futura.
+
+A integração Linux do envelope, overwrite, restore e readiness foi **TESTADA NESTE HOST**, somente com segredo sintético e chave isolada removida em finally. Windows permanece **TESTADO UNITARIAMENTE** nesta rodada Linux. macOS: paths unitários e fail-secure; **NÃO VALIDADO EM HOST REAL**, Keychain não implementado. Nenhuma credencial real foi persistida durante o desenvolvimento. Ver [Autenticação e sessão](authentication-session.md).

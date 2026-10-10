@@ -126,11 +126,25 @@ Os testes usam bancos temporários e não acessam o banco local do usuário. A p
 
 O PDV consome o contrato `v1` do backend: health, pareamento de terminal e leitura autenticada do terminal. A URL base nunca está no código: vem de `api.base-url` na configuração bootstrap.
 
-TLS não é enfraquecido em nenhuma hipótese, `X-Request-ID` correlaciona cada chamada, timeouts são explícitos, o retry é assimétrico (leituras podem repetir uma vez; o pareamento nunca repete) e a machine credential existe somente em memória nesta fase. Detalhes em [Contrato da API PDV](docs/api-contract.md).
+TLS não é enfraquecido em nenhuma hipótese, `X-Request-ID` correlaciona cada chamada, timeouts são explícitos, o retry é assimétrico (leituras podem repetir uma vez; o pareamento nunca repete) e a machine credential possui lifecycle seguro via SecretStore na Fase 5. Detalhes em [Contrato da API PDV](docs/api-contract.md).
+
+## Autenticação do terminal — Fase 5 parcial
+
+O pairing presencial utiliza o `installation_id` existente. A credencial retornada é armazenada exclusivamente no SecretStore nativo: Windows/DPAPI e Linux/libsecret. O restore compara IDs e expiração antes de considerar o terminal autenticado. `401`/`403` removem a credencial local e exigem novo pairing; expiração usa `now >= expires_at`, sem margem adicional.
+
+`OFFLINE_LIMITED` exige validação online anterior persistida e credencial ainda válida. Representa somente identidade previamente conhecida; não autoriza vendas nem autentica operador. A remoção local da credencial preserva instalação e referências do provisionamento, sem revogação remota inventada. Operações SQLite, nativas e HTTP ficam fora da thread JavaFX.
+
+**Operator authentication backend contract unavailable.** Autenticação e sessão do operador permanecem pendentes. macOS continua bloqueado para credencial persistente até implementação e validação real do Keychain. Veja [Autenticação e sessão](docs/authentication-session.md).
+
+Integração Linux opt-in, somente com dados sintéticos e cleanup confirmado:
+
+```bash
+./mvnw test -Dtest=LinuxSecretStoreIT,LinuxMachineCredentialRepositoryIT
+```
 
 ## Identidade e configuração do terminal
 
-Na inicialização, o PDV garante um `installation_id` local e estável, informa se o terminal está provisionado e lê a configuração bootstrap opcional em `PlatformPaths.configDirectory()/bootstrap.properties`, sem realizar chamadas ao backend. Detalhes em [Identidade e configuração do terminal](docs/terminal-configuration.md).
+Na inicialização, o PDV garante um `installation_id` local e estável, informa se o terminal está provisionado e lê a configuração bootstrap opcional em `PlatformPaths.configDirectory()/bootstrap.properties`, com restore assíncrono da autenticação do terminal. Se houver credencial válida e API configurada, valida a identidade via `GET /api/v1/pdv/terminal`. Sem credencial, não chama o backend. Detalhes em [Identidade e configuração do terminal](docs/terminal-configuration.md).
 
 ## Estrutura do projeto
 
@@ -140,10 +154,12 @@ src/
     java/br/com/lucraone/pdv/
       domain/
       application/
+        auth/
         api/
         security/
         terminal/
       infrastructure/
+        auth/
         api/
           dto/
           error/
@@ -163,7 +179,7 @@ src/
 - `infrastructure`: adapters concretos — persistência, API HTTPS, segredos por plataforma e caminhos por plataforma.
 - `presentation`: JavaFX e interação com o usuário. Nunca fala HTTP diretamente.
 
-`infrastructure/platform` implementa paths por plataforma. `SecretStore` declara save/load/delete: Windows reutiliza DPAPI e Linux usa libsecret/Secret Service. O limite macOS falha explicitamente; integração Keychain real permanece pendente. Nenhuma machine credential está conectada ao store.
+`infrastructure/platform` implementa paths por plataforma. `SecretStore` declara save/load/delete: Windows reutiliza DPAPI e Linux usa libsecret/Secret Service. O limite macOS falha explicitamente; integração Keychain real permanece pendente. A porta `MachineCredentialRepository` compõe o SecretStore com um envelope protegido e versionado, sem token no SQLite.
 
 ## Desenvolvimento local
 
@@ -171,7 +187,7 @@ O aplicativo desktop é desenvolvido e testado localmente em Windows e em Linux.
 
 ## Estado atual
 
-Fundação, Fase 2 — Persistência local, Fase 3 — Provisionamento e configuração do terminal e Fase 4 — Contrato e conectividade com a API concluídas.
+Fundação e Fases 2–4 concluídas. **Fase 5 — EM ANDAMENTO / PARCIAL**: lifecycle da machine credential, restore, expiração, validação online, offline limitado e remoção local implementados. Autenticação e sessão do operador dependem de contrato oficial do backend; nenhum endpoint foi inventado. Fase 6 não iniciada.
 
 O PDV **não** está operacional para venda. Autenticação de operador, catálogo, preços, venda, pagamentos, sincronização, periféricos, empacotamento e fiscal continuam pendentes.
 
@@ -181,11 +197,11 @@ Hoje o projeto possui:
 - Maven Wrapper;
 - arquitetura inicial em camadas;
 - persistência local com SQLite em paths nativos por plataforma;
-- migrations versionadas com Flyway, incluindo a V2 de identidade do terminal;
+- migrations versionadas com Flyway, incluindo V2 de identidade e V3 de evidência não secreta de validação;
 - acesso a dados com JDBC puro;
 - transações JDBC com commit e rollback;
 - `installation_id` local persistente;
-- estado de provisionamento do terminal, ainda sem provisionamento remoto;
+- provisionamento remoto coordenado, com persistência segura e compensação explícita;
 - configuração bootstrap não secreta em `bootstrap.properties`;
 - proteção de segredos com DPAPI no Windows;
 - diagnóstico local do terminal;
@@ -198,7 +214,6 @@ Hoje o projeto possui:
 ## Ainda não implementado
 
 - autenticação de operador e sessão operacional;
-- persistência segura da machine credential;
 - integração Keychain real em macOS;
 - sincronização;
 - produtos;

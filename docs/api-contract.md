@@ -183,16 +183,11 @@ host do backend — uma URL configurada poderia, ela própria, embutir dado sens
 
 ## Sensibilidade da credencial
 
-A machine credential devolvida pelo pareamento é secreta. Nesta fase ela existe **somente em memória**,
-pelo tempo do fluxo que a usa.
+A machine credential devolvida pelo pareamento é secreta. A Fase 4 entregou transporte e uso em memória; a Fase 5 parcial adiciona lifecycle protegido via `MachineCredentialRepository` e SecretStore nativo. Nenhum endpoint, payload HTTP, TLS ou retry da Fase 4 foi alterado.
 
-Ela não é gravada no SQLite, em `properties`, em arquivo ou em qualquer outro meio, e nenhuma migration
-local foi criada para token. `MachineCredential`, `PairedTerminal`, `PairTerminalCommand`,
-`CredentialDto` e `PairTerminalRequestDto` têm `toString()` redigido, para que o segredo não chegue a um
-log pela representação gerada de um record.
+O token não é gravado em SQLite, properties ou arquivo plaintext. A V3 contém apenas evidência não secreta de validação; o envelope versionado com token e expiração fica dentro do SecretStore. Os `toString()` de credenciais e comandos são redigidos. Sem store disponível não há fallback. macOS continua bloqueado até Keychain real.
 
-A persistência segura depende de um secret store por plataforma e pertence à fase de autenticação. Não há
-fallback: sem store nativo, a política é falhar de forma segura, nunca gravar em texto puro.
+**Operator authentication backend contract unavailable.** Não há contrato aprovado de autenticação, sessão ou logout de operador. O forget de terminal é exclusivamente local, sem revogação remota. Políticas e limitações em [Autenticação e sessão](authentication-session.md).
 
 ## Assincronismo
 

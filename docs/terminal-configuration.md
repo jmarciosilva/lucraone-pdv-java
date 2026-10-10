@@ -13,7 +13,7 @@ O estado de provisionamento fica na tabela `terminal_provisioning`:
 - sem linha: **não provisionado**, estado válido enquanto não houver provisionamento pelo backend;
 - com linha: **provisionado**, com `terminal_id` e `branch_id` gravados juntos.
 
-`terminal_id` e `branch_id` são referências externas opacas (texto, até 64 caracteres) porque o contrato da API ainda não foi definido. O PDV não gera esses valores. A gravação ocorre em uma única transação e o schema rejeita provisionamento parcial. Nesta fase não existe fluxo remoto de provisionamento.
+`terminal_id` e `branch_id` são referências externas opacas (texto, até 64 caracteres) devolvidas pelo contrato de pairing da Fase 4. O PDV não gera esses valores. A gravação ocorre em uma única transação e o schema rejeita provisionamento parcial. A Fase 5 parcial coordena o fluxo remoto descrito abaixo.
 
 ## Configuração bootstrap
 
@@ -41,10 +41,16 @@ O bootstrap nunca deve conter senhas, tokens ou outras credenciais.
 
 ## Proteção de segredos
 
-A porta `SecretProtector` continua protegendo/desprotegendo bytes. A porta `SecretStore` fica acima dela para save/load/delete: Windows persiste somente ciphertext DPAPI e Linux usa Secret Service nativo. macOS permanece explicitamente indisponível até a integração Keychain real. Nenhuma dessas portas está conectada à machine credential nesta rodada. Veja [Plataforma](platform.md). A implementação `WindowsDpapiSecretProtector` usa DPAPI (`CryptProtectData`/`CryptUnprotectData`) no escopo do usuário Windows atual, chamado pela Foreign Function API do JDK, sem dependência externa e sem chave gerenciada pela aplicação. Requer `--enable-native-access=ALL-UNNAMED`, já configurado para testes e para `javafx:run`.
+A porta `SecretProtector` continua protegendo/desprotegendo bytes. A porta `SecretStore` fica acima dela para save/load/delete: Windows persiste somente ciphertext DPAPI e Linux usa Secret Service nativo. macOS permanece explicitamente indisponível até a integração Keychain real. A Fase 5 parcial conecta a machine credential via `MachineCredentialRepository` ao SecretStore. Nenhum token é armazenado nas tabelas locais. Veja [Plataforma](platform.md). A implementação `WindowsDpapiSecretProtector` usa DPAPI (`CryptProtectData`/`CryptUnprotectData`) no escopo do usuário Windows atual, chamado pela Foreign Function API do JDK, sem dependência externa e sem chave gerenciada pela aplicação. Requer `--enable-native-access=ALL-UNNAMED`, já configurado para testes e para `javafx:run`.
 
-Ainda não há segredo real nem tabela de segredos. Material protegido só pode ser recuperado pelo mesmo usuário Windows no mesmo perfil; se o perfil for perdido, o segredo deve ser obtido novamente pelo fluxo de autenticação futuro, nunca reconstruído.
+Nenhum segredo real foi usado na validação de desenvolvimento e não há tabela de segredos. Material protegido só pode ser recuperado pelo mesmo usuário Windows no mesmo perfil; se o perfil for perdido, a credencial deve ser obtida novamente pelo pairing presencial, nunca reconstruída.
 
 ## Diagnóstico
 
 `TerminalService.initialize()` garante a identidade, valida o bootstrap e devolve `TerminalDiagnostics` com: `installation_id`, status de provisionamento, `terminal_id`/`branch_id` quando existirem, caminho do banco, estado e caminho do bootstrap, ambiente, URL da API configurada, versão do aplicativo e descrição do sistema operacional fornecida pela composição de infraestrutura (o caso de uso não inspeciona o SO). O diagnóstico é local, não é enviado a nenhum serviço e não contém segredos.
+
+## Lifecycle remoto na Fase 5 parcial
+
+`TerminalService` mantém seu papel local. `TerminalProvisioningService` coordena o pairing remoto com o installation_id existente, valida a resposta e persiste primeiro a credencial protegida, depois referências não secretas. Se SQLite falhar, restaura a credencial anterior ou remove a nova; falha de compensação é explícita. O código presencial nunca é persistido.
+
+O startup JavaFX executa SQLite, restore nativo e validação online no worker. Apenas referências locais não provam autenticação; token presente também não prova aceitação pelo backend. Remoção local da autenticação preserva instalação e provisionamento. Ver [Autenticação e sessão](authentication-session.md).

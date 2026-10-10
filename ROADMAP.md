@@ -1,7 +1,7 @@
 # LucraOne PDV Java — Roadmap
 
 **Data inicial:** 2026-10-07
-**Estado:** Fundação, Fase 2 — Persistência local, Fase 3 — Provisionamento e configuração do terminal e Fase 4 — Contrato e conectividade com a API concluídas.
+**Estado:** Fundação, Fase 2 — Persistência local, Fase 3 — Provisionamento e configuração do terminal e Fase 4 — Contrato e conectividade com a API concluídas. Fase 5 em andamento/parcial, com autenticação do operador bloqueada por contrato backend ausente.
 
 **Plataformas-alvo:** Windows, Linux e macOS. O LucraOne PDV Java é um aplicativo Java multiplataforma, não um aplicativo Windows escrito em Java.
 **Commit base:** `bc28f68fe0b05239df7e129ae8cb7f73113ab924`
@@ -165,7 +165,7 @@ Venda e pagamento devem permanecer distintos: uma venda pode ter diversos pagame
 
 ## Segurança, observabilidade e testes
 
-O mínimo seguro inclui não armazenar senhas em SQLite, proteger tokens no armazenamento nativo do sistema operacional, restringir permissões do diretório da aplicação, evitar dados sensíveis em logs e manter retenção controlada de clientes em cache. O store Windows reutiliza DPAPI e o Linux integra Secret Service nativo. macOS falha explicitamente até a integração Keychain real. Nenhuma machine credential é persistida nesta rodada. Não há fallback inseguro: sem store nativo, a política é falhar de forma segura. Criptografia do banco deve ser decidida conforme a classificação de dados e a política operacional; se adotada, a gestão da chave é tão importante quanto a cifra.
+O mínimo seguro inclui não armazenar senhas em SQLite, proteger tokens no armazenamento nativo do sistema operacional, restringir permissões do diretório da aplicação, evitar dados sensíveis em logs e manter retenção controlada de clientes em cache. O store Windows reutiliza DPAPI e o Linux integra Secret Service nativo. macOS falha explicitamente até a integração Keychain real. Na Fase 5, a persistência da machine credential usa exclusivamente SecretStore; nenhum token real foi usado no desenvolvimento. Não há fallback inseguro: sem store nativo, a política é falhar de forma segura. Criptografia do banco deve ser decidida conforme a classificação de dados e a política operacional; se adotada, a gestão da chave é tão importante quanto a cifra.
 
 Em transporte, TLS nunca é enfraquecido: nenhum `SSLContext`, `TrustManager` ou verificador de hostname é substituído, e redirecionamentos não são seguidos. O logging da API é sanitizado — registra operação, método, caminho lógico, status, duração e `request_id`, e nunca corpo, `Authorization`, access token, pairing code ou host do backend.
 
@@ -215,7 +215,7 @@ Testes devem começar cedo com unidade para domínio e aplicação, integração
 - **Fora de escopo:** sincronização completa, venda, login de operador e persistência da machine credential.
 - **Aceite:** ambiente de teste comprova chamadas autenticáveis, versionadas e observáveis.
 - **Dependências:** Fase 3 e auditoria dos requisitos do Laravel.
-- **Nota:** a machine credential existe somente em memória. A persistência segura depende de secret store por plataforma e pertence à Fase 5.
+- **Nota histórica:** na entrega da Fase 4, a machine credential existia somente em memória. A persistência segura foi adicionada na Fase 5 parcial, via SecretStore por plataforma.
 
 ### Pré-requisito técnico multiplataforma antes da Fase 5
 
@@ -240,12 +240,12 @@ Testes devem começar cedo com unidade para domínio e aplicação, integração
 - Linux possui PlatformPaths, SecretStore baseado em libsecret/Secret Service e SQLite/Flyway validados em runtime real.
 - macOS possui PlatformPaths e comportamento fail-secure, mas a integração real com Keychain ainda não foi implementada nem validada em host macOS.
 - Portanto, macOS **NÃO está pronto para persistência de machine credential**.
-- A Fase 5 pode evoluir normalmente em Windows/Linux; permanece **PRÓXIMA / NÃO INICIADA** nesta atualização documental.
+- A Fase 5 evolui em Windows/Linux com persistência segura; está **EM ANDAMENTO / PARCIAL**, com operador ainda pendente.
 - Suporte completo de persistência segura no macOS depende da implementação e validação do Keychain em host macOS.
 
 ### Fase 5 — Autenticação e sessão operacional
 
-**PRÓXIMA · NÃO INICIADA**
+**EM ANDAMENTO / PARCIAL — NÃO CONCLUÍDA**
 
 - **Objetivo:** estabelecer operador, terminal e regras de sessão.
 - **Entregas:** fluxo de autenticação aprovado, token protegido, expiração, logout e política offline limitada.
@@ -253,6 +253,23 @@ Testes devem começar cedo com unidade para domínio e aplicação, integração
 - **Aceite:** não há senha persistida localmente; expiração e reautenticação têm comportamento definido.
 - **Dependências:** Fase 4 e política de segurança/produto.
 - **Pré-requisito técnico:** infraestrutura entregue conforme seção anterior. Antes da persistência em macOS, implementar e validar Keychain em host real. Sem store nativo disponível, falhar de forma segura; nunca gravar segredo em plaintext, properties ou SQLite.
+
+**Concluído no escopo de identidade do terminal:**
+
+- lifecycle da machine credential via SecretStore e envelope protegido versionado;
+- pairing sem retry, coerência de instalação, persistência não secreta e compensação testada;
+- restore no startup, expiração estrita com Clock injetável e validação online pelo endpoint existente;
+- evidência não secreta em V3, vinculada à geração da credencial, instalação, terminal, filial e backend;
+- offline limitado somente após validação prévia, com token não expirado e falha de rede/timeout;
+- remoção local da credencial, política de re-pairing e rotação segura com falhas explícitas;
+- UI mínima assíncrona e testes unitários/de integração, sem pairing real.
+
+**Pendente / bloqueado:** autenticação do operador e sessão operacional completa do operador.
+**Motivo:** **Operator authentication backend contract unavailable** — os únicos endpoints aprovados continuam health, pair e current terminal. Nenhum login local, senha persistida ou endpoint foi criado.
+
+Para concluir a Fase 5, o backend deve aprovar método/path, payload, identidade/contexto do operador, credencial e expiração da sessão, erros, reautenticação, logout/revogação e política offline. Não se presume nenhum desses campos ou protocolos. Detalhes em [Autenticação e sessão](docs/authentication-session.md).
+
+macOS permanece plataforma-alvo, **bloqueado para persistência de credenciais até Keychain real validado**. Windows foi testado sinteticamente neste host Linux; não se declara runtime Windows validado nesta rodada. A Fase 6 **NÃO foi iniciada**.
 
 ### Fase 6 — Catálogo e preços locais
 
@@ -335,10 +352,11 @@ Testes devem começar cedo com unidade para domínio e aplicação, integração
 | `SecretStore` por plataforma | Implementado com limitação macOS | Windows/DPAPI e Linux/libsecret; macOS fail-secure com Keychain real pendente. Nenhuma credencial real persistida. |
 | `PlatformPaths` por plataforma | Implementado | Windows/`LOCALAPPDATA`, Linux/XDG, macOS/Application Support. Linux operacional neste host; macOS testado unitariamente. |
 | Cliente HTTP do JDK | Aprovada | `java.net.http.HttpClient` com `sendAsync`; nenhuma biblioteca HTTP de terceiros foi adicionada. |
-| Jackson para JSON | Aprovada | `jackson-databind`, restrito aos DTOs de transporte em `infrastructure/api/dto`. |
+| Jackson para JSON | Aprovada | `jackson-databind` restrito à infraestrutura: DTOs HTTP e envelope protegido da credencial; nunca na application. |
 | Erros de API como exceção tipada | Aprovada | `PdvApiException` com `PdvApiFailure`, consistente com o estilo já usado em persistência e segurança. |
 | Retry assimétrico | Aprovada | Leituras idempotentes podem repetir uma vez; o `POST` de pareamento nunca repete, pois o código é de uso único. |
-| Machine credential somente em memória | Aprovada até a Fase 5 | Nenhuma persistência de token enquanto não houver secret store multiplataforma. |
+| Machine credential via SecretStore | Implementada na Fase 5 parcial | Envelope protegido e versionado; nenhum token em SQLite/properties. Windows/Linux; macOS bloqueado até Keychain. |
+| Offline limitado de identidade | Implementada na Fase 5 parcial | Evidência V3 vinculada à geração; somente rede/timeout e credencial não expirada; não autoriza vendas. |
 
 ## Decisões que continuam pendentes
 

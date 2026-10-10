@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import br.com.lucraone.pdv.infrastructure.platform.WindowsPlatformPaths;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
@@ -17,7 +18,7 @@ class LocalDataDirectoryTest {
 
     @Test
     void resolvesTheDatabasePathFromLocalAppData() {
-        LocalDataDirectory directory = new LocalDataDirectory(() -> temporaryDirectory.toString());
+        LocalDataDirectory directory = new LocalDataDirectory(() -> new WindowsPlatformPaths(key -> temporaryDirectory.toString()));
 
         Path expected = temporaryDirectory.toAbsolutePath().normalize()
                 .resolve("LucraOne")
@@ -30,14 +31,14 @@ class LocalDataDirectoryTest {
 
     @Test
     void resolvesTheBootstrapConfigurationFileInTheConfigDirectory() {
-        LocalDataDirectory directory = new LocalDataDirectory(() -> temporaryDirectory.toString());
+        LocalDataDirectory directory = new LocalDataDirectory(() -> new WindowsPlatformPaths(key -> temporaryDirectory.toString()));
 
         assertEquals(directory.configDirectory().resolve("bootstrap.properties"), directory.bootstrapConfigurationFile());
     }
 
     @Test
     void createsTheOperationalDirectories() {
-        LocalDataDirectory directory = new LocalDataDirectory(() -> temporaryDirectory.toString());
+        LocalDataDirectory directory = new LocalDataDirectory(() -> new WindowsPlatformPaths(key -> temporaryDirectory.toString()));
 
         directory.prepareOperationalDirectories();
 
@@ -49,7 +50,7 @@ class LocalDataDirectoryTest {
 
     @Test
     void failsExplicitlyWhenLocalAppDataIsUnavailable() {
-        LocalDataDirectory directory = new LocalDataDirectory(() -> null);
+        LocalDataDirectory directory = new LocalDataDirectory(() -> new WindowsPlatformPaths(key -> null));
 
         LocalDatabaseException exception = assertThrows(
                 LocalDatabaseException.class,

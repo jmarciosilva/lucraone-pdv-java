@@ -2,6 +2,7 @@ package br.com.lucraone.pdv.infrastructure.security;
 
 import br.com.lucraone.pdv.application.security.SecretProtectionException;
 import br.com.lucraone.pdv.application.security.SecretProtector;
+import br.com.lucraone.pdv.infrastructure.platform.OperatingSystem;
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
@@ -13,7 +14,6 @@ import java.lang.foreign.SymbolLookup;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.VarHandle;
-import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -23,11 +23,11 @@ import java.util.Objects;
 public final class WindowsDpapiSecretProtector implements SecretProtector {
 
     public WindowsDpapiSecretProtector() {
-        this(System.getProperty("os.name", ""));
+        this(OperatingSystem.current().name());
     }
 
     WindowsDpapiSecretProtector(String operatingSystemName) {
-        if (!operatingSystemName.toLowerCase(Locale.ROOT).startsWith("windows")) {
+        if (OperatingSystem.fromName(operatingSystemName) != OperatingSystem.WINDOWS) {
             throw new SecretProtectionException("A proteção de segredos via DPAPI exige Windows.");
         }
     }

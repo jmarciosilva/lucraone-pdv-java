@@ -20,6 +20,7 @@ public final class TerminalService {
     private final TerminalRepository repository;
     private final BootstrapConfigurationSource bootstrapConfiguration;
     private final String databaseLocation;
+    private final String operatingSystem;
     private final Clock clock;
     private final Supplier<UUID> installationIdGenerator;
 
@@ -28,19 +29,31 @@ public final class TerminalService {
             BootstrapConfigurationSource bootstrapConfiguration,
             String databaseLocation
     ) {
-        this(repository, bootstrapConfiguration, databaseLocation, Clock.systemUTC(), UUID::randomUUID);
+        this(repository, bootstrapConfiguration, databaseLocation, "Não informado", Clock.systemUTC(), UUID::randomUUID);
+    }
+
+    public TerminalService(TerminalRepository repository, BootstrapConfigurationSource bootstrapConfiguration,
+            String databaseLocation, String operatingSystem) {
+        this(repository, bootstrapConfiguration, databaseLocation, operatingSystem, Clock.systemUTC(), UUID::randomUUID);
+    }
+
+    TerminalService(TerminalRepository repository, BootstrapConfigurationSource bootstrapConfiguration,
+            String databaseLocation, Clock clock, Supplier<UUID> installationIdGenerator) {
+        this(repository, bootstrapConfiguration, databaseLocation, "Ambiente de teste", clock, installationIdGenerator);
     }
 
     TerminalService(
             TerminalRepository repository,
             BootstrapConfigurationSource bootstrapConfiguration,
             String databaseLocation,
+            String operatingSystem,
             Clock clock,
             Supplier<UUID> installationIdGenerator
     ) {
         this.repository = Objects.requireNonNull(repository, "repository must not be null");
         this.bootstrapConfiguration = Objects.requireNonNull(bootstrapConfiguration, "bootstrapConfiguration must not be null");
         this.databaseLocation = Objects.requireNonNull(databaseLocation, "databaseLocation must not be null");
+        this.operatingSystem = Objects.requireNonNull(operatingSystem);
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
         this.installationIdGenerator = Objects.requireNonNull(installationIdGenerator, "installationIdGenerator must not be null");
     }
@@ -65,7 +78,7 @@ public final class TerminalService {
                 bootstrap.flatMap(BootstrapConfiguration::environment),
                 bootstrap.flatMap(BootstrapConfiguration::apiBaseUrl),
                 ApplicationMetadata.version(),
-                System.getProperty("os.name", "") + " " + System.getProperty("os.version", "")
+                operatingSystem
         );
     }
 

@@ -102,6 +102,35 @@ class ApiArchitectureBoundaryTest {
     }
 
     @Test
+    void theApplicationNeverInspectsTheOperatingSystem() {
+        assertEquals(List.of(), violations("application", List.of("os.name", "os.version")));
+    }
+
+    @Test
+    void thePresentationNeverNamesConcreteSecretStores() {
+        assertEquals(List.of(), violations("presentation", List.of("WindowsSecretStore", "LinuxSecretStore", "MacOsSecretStore")));
+    }
+
+    @Test
+    void theApiHasNoPlatformDependency() {
+        assertEquals(List.of(), violations("infrastructure/api", List.of("infrastructure.platform", "infrastructure.security", "os.name", "LOCALAPPDATA", "XDG_")));
+    }
+
+    @Test
+    void platformEnvironmentNamesStayInTheirAdapters() {
+        for (Path file : sourcesUnder("infrastructure")) {
+            String text = read(file);
+            String name = file.getFileName().toString();
+            if (name.equals("package-info.java")) continue;
+            if (text.contains("LOCALAPPDATA")) assertEquals("WindowsPlatformPaths.java", name);
+            if (text.contains("XDG_DATA_HOME")) assertEquals("LinuxPlatformPaths.java", name);
+            if (text.contains("Application Support")) assertEquals("MacOsPlatformPaths.java", name);
+            if (text.contains("os.name")) assertEquals("OperatingSystem.java", name);
+            if (text.contains("DPAPI")) assertTrue(name.equals("WindowsDpapiSecretProtector.java") || name.equals("WindowsSecretStore.java"));
+        }
+    }
+
+    @Test
     void thePresentationNeverTalksHttpItself() {
         List<String> found = violations("presentation", List.of("java.net.http", "com.fasterxml.jackson"));
 

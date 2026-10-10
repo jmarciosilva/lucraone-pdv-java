@@ -12,6 +12,7 @@ import br.com.lucraone.pdv.infrastructure.persistence.LocalDataDirectory;
 import br.com.lucraone.pdv.infrastructure.persistence.LocalDatabaseException;
 import br.com.lucraone.pdv.infrastructure.persistence.LocalDatabaseInitializer;
 import br.com.lucraone.pdv.infrastructure.persistence.SqliteConnectionFactory;
+import br.com.lucraone.pdv.infrastructure.platform.OperatingSystem;
 import javafx.application.Application;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -51,7 +52,8 @@ public class LucraOnePdvApplication extends Application {
         return new TerminalService(
                 new JdbcTerminalRepository(new JdbcTransactionManager(connections)),
                 new PropertiesBootstrapConfigurationSource(directory.bootstrapConfigurationFile()),
-                directory.databasePath().toString()
+                directory.databasePath().toString(),
+                OperatingSystem.description()
         );
     }
 

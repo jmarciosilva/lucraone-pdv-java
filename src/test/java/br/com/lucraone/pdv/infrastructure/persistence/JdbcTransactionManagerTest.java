@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import br.com.lucraone.pdv.infrastructure.platform.WindowsPlatformPaths;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -25,7 +26,7 @@ class JdbcTransactionManagerTest {
 
     @BeforeEach
     void setUp() throws SQLException {
-        LocalDataDirectory directory = new LocalDataDirectory(() -> temporaryDirectory.toString());
+        LocalDataDirectory directory = new LocalDataDirectory(() -> new WindowsPlatformPaths(key -> temporaryDirectory.toString()));
         connections = new LocalDatabaseInitializer(directory).initialize();
         transactions = new JdbcTransactionManager(connections);
 

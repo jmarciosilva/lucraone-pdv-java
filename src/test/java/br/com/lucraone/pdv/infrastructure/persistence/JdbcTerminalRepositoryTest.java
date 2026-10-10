@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import br.com.lucraone.pdv.domain.terminal.Installation;
 import br.com.lucraone.pdv.domain.terminal.TerminalProvisioning;
+import br.com.lucraone.pdv.infrastructure.platform.WindowsPlatformPaths;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -40,7 +41,7 @@ class JdbcTerminalRepositoryTest {
 
     @BeforeEach
     void setUp() {
-        directory = new LocalDataDirectory(() -> temporaryDirectory.toString());
+        directory = new LocalDataDirectory(() -> new WindowsPlatformPaths(key -> temporaryDirectory.toString()));
         connections = new LocalDatabaseInitializer(directory).initialize();
         repository = new JdbcTerminalRepository(new JdbcTransactionManager(connections));
     }

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import br.com.lucraone.pdv.infrastructure.platform.WindowsPlatformPaths;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -23,7 +24,7 @@ class LocalDatabaseInitializerTest {
 
     @Test
     void createsMigratesAndConfiguresANewTemporaryDatabase() throws Exception {
-        LocalDataDirectory directory = new LocalDataDirectory(() -> temporaryDirectory.toString());
+        LocalDataDirectory directory = new LocalDataDirectory(() -> new WindowsPlatformPaths(key -> temporaryDirectory.toString()));
         SqliteConnectionFactory connections = new LocalDatabaseInitializer(directory).initialize();
 
         assertTrue(directory.databasePath().startsWith(temporaryDirectory));
@@ -42,7 +43,7 @@ class LocalDatabaseInitializerTest {
 
     @Test
     void reopensAnAlreadyMigratedDatabaseWithoutRepeatingTheMigration() throws Exception {
-        LocalDataDirectory directory = new LocalDataDirectory(() -> temporaryDirectory.toString());
+        LocalDataDirectory directory = new LocalDataDirectory(() -> new WindowsPlatformPaths(key -> temporaryDirectory.toString()));
         LocalDatabaseInitializer initializer = new LocalDatabaseInitializer(directory);
 
         initializer.initialize();
@@ -58,7 +59,7 @@ class LocalDatabaseInitializerTest {
 
     @Test
     void preservesAnUnknownExistingDatabaseWhenMigrationIsRefused() throws Exception {
-        LocalDataDirectory directory = new LocalDataDirectory(() -> temporaryDirectory.toString());
+        LocalDataDirectory directory = new LocalDataDirectory(() -> new WindowsPlatformPaths(key -> temporaryDirectory.toString()));
         directory.prepareOperationalDirectories();
         SqliteConnectionFactory connections = new SqliteConnectionFactory(directory.databasePath());
         try (Connection connection = connections.openConnection(); Statement statement = connection.createStatement()) {
@@ -81,7 +82,7 @@ class LocalDatabaseInitializerTest {
 
     @Test
     void migratesAVersionOneDatabaseToTheCurrentSchemaPreservingData() throws Exception {
-        LocalDataDirectory directory = new LocalDataDirectory(() -> temporaryDirectory.toString());
+        LocalDataDirectory directory = new LocalDataDirectory(() -> new WindowsPlatformPaths(key -> temporaryDirectory.toString()));
         directory.prepareOperationalDirectories();
         SqliteConnectionFactory connections = new SqliteConnectionFactory(directory.databasePath());
         Flyway.configure()

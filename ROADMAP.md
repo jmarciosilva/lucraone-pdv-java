@@ -228,6 +228,21 @@ Testes devem começar cedo com unidade para domínio e aplicação, integração
 - Domain/application independentes de SO; nenhuma autenticação, sessão, pairing real ou persistência de machine credential.
 - Operação offline formalizada como requisito. Evidências e limites em [docs/platform.md](docs/platform.md).
 
+#### Estado de prontidão multiplataforma antes da Fase 5
+
+| Plataforma | PlatformPaths | SecretStore | Persistência local/runtime | Estado |
+| --- | --- | --- | --- | --- |
+| Windows | ✅ Implementado | ✅ DPAPI | ✅ Arquitetura preservada | Pronto para evolução da Fase 5 |
+| Linux | ✅ Implementado | ✅ libsecret / Secret Service | ✅ SQLite + Flyway validados em runtime real | Pronto para evolução da Fase 5 |
+| macOS | ✅ Implementado; paths testados unitariamente | ❌ Keychain pendente | Runtime macOS não validado; ✅ fail-secure | Parcial — persistência de credenciais ainda não liberada |
+
+- Windows possui PlatformPaths e SecretStore baseado em DPAPI.
+- Linux possui PlatformPaths, SecretStore baseado em libsecret/Secret Service e SQLite/Flyway validados em runtime real.
+- macOS possui PlatformPaths e comportamento fail-secure, mas a integração real com Keychain ainda não foi implementada nem validada em host macOS.
+- Portanto, macOS **NÃO está pronto para persistência de machine credential**.
+- A Fase 5 pode evoluir normalmente em Windows/Linux; permanece **PRÓXIMA / NÃO INICIADA** nesta atualização documental.
+- Suporte completo de persistência segura no macOS depende da implementação e validação do Keychain em host macOS.
+
 ### Fase 5 — Autenticação e sessão operacional
 
 **PRÓXIMA · NÃO INICIADA**

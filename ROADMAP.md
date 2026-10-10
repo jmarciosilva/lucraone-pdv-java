@@ -1,7 +1,9 @@
 # LucraOne PDV Java — Roadmap
 
 **Data inicial:** 2026-10-07
-**Estado:** Fundação, Fase 2 — Persistência local e Fase 3 — Provisionamento e configuração do terminal concluídas.
+**Estado:** Fundação, Fase 2 — Persistência local, Fase 3 — Provisionamento e configuração do terminal e Fase 4 — Contrato e conectividade com a API concluídas.
+
+**Plataformas-alvo:** Windows, Linux e macOS. O LucraOne PDV Java é um aplicativo Java multiplataforma, não um aplicativo Windows escrito em Java.
 **Commit base:** `bc28f68fe0b05239df7e129ae8cb7f73113ab924`
 
 Este documento registra a direção técnica inicial do PDV. Ele é versionável, mas não substitui decisões de produto, fiscais ou de operação. As fases futuras só começam após aprovação explícita.
@@ -15,12 +17,22 @@ LucraOne Backend / API (autoridade central)
               |
 LucraOne PDV Java (um terminal)
   +-- presentation: JavaFX
-  +-- application: casos de uso e orquestração
-  +-- domain: regras e modelos de negócio
-  +-- infrastructure: SQLite, API, periféricos e observabilidade
+  +-- application: casos de uso, portas e orquestração — independente de SO
+  +-- domain: regras e modelos de negócio — independente de SO
+  +-- infrastructure: adapters concretos
+        +-- persistence: SQLite / Flyway
+        +-- api: HTTPS / REST
+        +-- security: WindowsSecretStore | LinuxSecretStore | MacOsSecretStore
+        +-- platform: Windows | Linux | macOS
 ```
 
 A arquitetura em quatro camadas está aprovada e deve permanecer simples: `domain` não depende de JavaFX, HTTP ou SQLite; `application` declara portas necessárias; `infrastructure` as implementa; e `presentation` somente conduz a interação do operador. Não há necessidade de separar módulos Maven agora. Quando os adaptadores crescerem, subpacotes por capacidade (`persistence`, `api`, `sync`, `hardware`, `logging`) são suficientes.
+
+### Independência de sistema operacional
+
+`domain` e `application` são 100% independentes de sistema operacional. É proibido introduzir nessas camadas `System.getProperty("os.name")`, `LOCALAPPDATA`, `APPDATA`, variáveis `XDG_*`, DPAPI, `CryptProtectData`, libsecret ou Keychain. Esses detalhes pertencem exclusivamente a `infrastructure`, atrás de portas.
+
+Um teste de fronteira (`ApiArchitectureBoundaryTest`) lê a árvore de fontes e falha se uma camada interna passar a depender de transporte, UI, adapter concreto ou detalhe de plataforma.
 
 ## Princípios arquiteturais aprovados
 
@@ -88,22 +100,32 @@ A configuração seguirá uma combinação:
 
 - arquivo de bootstrap não secreto para parâmetros iniciais, como URL do ambiente;
 - SQLite para estado operacional, terminal provisionado e checkpoints;
-- armazenamento protegido do Windows para tokens e material sensível, com DPAPI no escopo do usuário Windows atual, disponível desde a Fase 3;
+- armazenamento protegido nativo da plataforma para tokens e material sensível, atrás da porta `SecretProtector`. O adapter Windows com DPAPI no escopo do usuário atual está disponível desde a Fase 3; Linux e macOS têm direção aprovada e implementação futura;
 - `Preferences API` somente para preferências não críticas do usuário, se necessário.
 
 ### Diretório operacional local aprovado
 
-O banco e os artefatos operacionais não ficarão no repositório, junto do código-fonte ou em diretório versionado. A convenção base aprovada para Windows é:
+O banco e os artefatos operacionais não ficarão no repositório, junto do código-fonte ou em diretório versionado. A estrutura interna é a mesma em todas as plataformas:
 
 ```text
-%LOCALAPPDATA%\LucraOne\PDV\
-  data\
+<diretório de dados da aplicação>/LucraOne/PDV/
+  data/
     lucraone-pdv.db
-  logs\
-  config\
+  logs/
+  config/
 ```
 
-O caminho final poderá ser encapsulado por uma classe ou configuração futura, mas esta é a convenção arquitetural. A aplicação cria e utiliza essa estrutura operacional local durante a inicialização da persistência.
+A raiz é resolvida de forma nativa por plataforma. Isso **não** é uma regra universal baseada em `%LOCALAPPDATA%`:
+
+| Plataforma | Raiz | Situação |
+| --- | --- | --- |
+| Windows | `%LOCALAPPDATA%` | implementado |
+| Linux | XDG Base Directory: `$XDG_DATA_HOME`, com fallback `~/.local/share` | a implementar |
+| macOS | `~/Library/Application Support` | a implementar |
+
+Hoje `infrastructure.persistence.LocalDataDirectory` resolve `LOCALAPPDATA` diretamente e falha de forma explícita quando a variável não existe, sem escolher diretório alternativo. Em Linux e macOS a aplicação abre, informa que não pôde preparar o banco local e não cria arquivo nenhum.
+
+A resolução nativa pertence a `infrastructure/platform`, atrás de uma porta como `PlatformPaths`, e é um ajuste arquitetural próprio, com testes específicos por plataforma. Ele foi deliberadamente mantido fora da fase de API e deve ser concluído antes da operação completa em Linux ou macOS.
 
 ## Offline-first e sincronização
 
@@ -153,11 +175,13 @@ Venda e pagamento devem permanecer distintos: uma venda pode ter diversos pagame
 
 ## Segurança, observabilidade e testes
 
-O mínimo seguro inclui não armazenar senhas em SQLite, proteger futuramente tokens no armazenamento do sistema operacional, restringir permissões do diretório da aplicação, evitar dados sensíveis em logs e manter retenção controlada de clientes em cache. A proteção com DPAPI no escopo do usuário Windows atual está disponível desde a Fase 3 para tokens e segredos futuros. Criptografia do banco deve ser decidida conforme a classificação de dados e a política operacional; se adotada, a gestão da chave é tão importante quanto a cifra.
+O mínimo seguro inclui não armazenar senhas em SQLite, proteger tokens no armazenamento nativo do sistema operacional, restringir permissões do diretório da aplicação, evitar dados sensíveis em logs e manter retenção controlada de clientes em cache. O adapter Windows com DPAPI no escopo do usuário atual está disponível desde a Fase 3; os adapters de Linux e macOS têm direção aprovada e implementação futura, e enquanto não existirem nenhuma credencial é persistida. Não há fallback inseguro: sem store nativo, a política é falhar de forma segura. Criptografia do banco deve ser decidida conforme a classificação de dados e a política operacional; se adotada, a gestão da chave é tão importante quanto a cifra.
+
+Em transporte, TLS nunca é enfraquecido: nenhum `SSLContext`, `TrustManager` ou verificador de hostname é substituído, e redirecionamentos não são seguidos. O logging da API é sanitizado — registra operação, método, caminho lógico, status, duração e `request_id`, e nunca corpo, `Authorization`, access token, pairing code ou host do backend.
 
 Logs locais rotativos devem registrar nível, versão do aplicativo, correlação de sync, falhas de hardware e erros sem credenciais ou payloads sensíveis. Deve existir material de diagnóstico para suporte, sem telemetria automática não aprovada.
 
-Testes devem começar cedo com unidade para domínio e aplicação, integração SQLite para migrations/repositórios e testes de idempotência/outbox. Depois entram testes de contrato da API, cenários offline/sync e testes de UI JavaFX focados nos fluxos críticos. GitHub Actions é recomendado futuramente para `test` e `package`; empacotamento pode ser adicionado quando houver distribuição.
+Testes devem começar cedo com unidade para domínio e aplicação, integração SQLite para migrations/repositórios e testes de idempotência/outbox. Os testes de contrato da API já existem, contra servidor HTTP local do próprio JDK, e a suíte é integralmente independente da Internet; smoke contra ambiente real é opt-in por variável de ambiente. Depois entram cenários offline/sync e testes de UI JavaFX focados nos fluxos críticos. GitHub Actions é recomendado futuramente para `test` e `package`; empacotamento pode ser adicionado quando houver distribuição.
 
 ## Fases
 
@@ -192,23 +216,31 @@ Testes devem começar cedo com unidade para domínio e aplicação, integração
 - **Dependências:** Fase 2 e definição de provisionamento pelo backend.
 - **Base:** `bc28f68fe0b05239df7e129ae8cb7f73113ab924`.
 
-### Fase 4 — Contrato e conectividade com a API
+### Fase 4 — Contrato e conectividade com a API ✅
 
-**Planejada · próxima prioridade**
+**Concluída ✅**
 
 - **Objetivo:** validar o contrato mínimo entre PDV e backend antes de fluxos comerciais.
-- **Entregas:** especificação versionada, cliente HTTP, tratamento de timeout/erros e testes de contrato.
-- **Fora de escopo:** sincronização completa e venda.
+- **Entregas:** especificação versionada em [docs/api-contract.md](docs/api-contract.md), porta de aplicação `PdvBackendGateway`, adapter HTTPS com o `HttpClient` do JDK, contratos `v1` de health/pareamento/terminal autenticado, correlação `X-Request-ID`, timeouts explícitos, retry assimétrico, erros tipados e testes de contrato contra servidor HTTP local.
+- **Fora de escopo:** sincronização completa, venda, login de operador e persistência da machine credential.
 - **Aceite:** ambiente de teste comprova chamadas autenticáveis, versionadas e observáveis.
 - **Dependências:** Fase 3 e auditoria dos requisitos do Laravel.
+- **Nota:** a machine credential existe somente em memória. A persistência segura depende de secret store por plataforma e pertence à Fase 5.
 
 ### Fase 5 — Autenticação e sessão operacional
+
+**Planejada · próxima prioridade**
 
 - **Objetivo:** estabelecer operador, terminal e regras de sessão.
 - **Entregas:** fluxo de autenticação aprovado, token protegido, expiração, logout e política offline limitada.
 - **Fora de escopo:** autorização TEF, fiscal e venda completa.
 - **Aceite:** não há senha persistida localmente; expiração e reautenticação têm comportamento definido.
 - **Dependências:** Fase 4 e política de segurança/produto.
+- **Pré-requisito obrigatório:** antes de persistir a machine credential é necessário reavaliar e decidir
+  (1) o `SecretStore` multiplataforma — Windows/DPAPI, Linux/Secret Service ou equivalente seguro,
+  macOS/Keychain — e (2) o `PlatformPaths` multiplataforma — Windows/`LOCALAPPDATA`, Linux/XDG,
+  macOS/Application Support. Sem store nativo a política é falhar de forma segura: nunca gravar segredo em
+  texto puro, em `properties`, em arquivo ou no SQLite sem proteção.
 
 ### Fase 6 — Catálogo e preços locais
 
@@ -250,13 +282,17 @@ Testes devem começar cedo com unidade para domínio e aplicação, integração
 - **Aceite:** dispositivos suportados possuem diagnóstico, fallback e testes com simuladores quando possível.
 - **Dependências:** fluxos de venda e caixa estáveis.
 
-### Fase 11 — Empacotamento e operação Windows
+### Fase 11 — Empacotamento e operação multiplataforma
 
-- **Objetivo:** distribuir e atualizar o aplicativo de forma controlada.
-- **Entregas:** avaliação de `jpackage`, instalador MSI/EXE, diretórios operacionais, upgrade e rollback documentados.
+- **Objetivo:** distribuir e atualizar o aplicativo de forma controlada nas plataformas-alvo.
+- **Entregas:** avaliação de `jpackage`, diretórios operacionais nativos por plataforma, upgrade e rollback
+  documentados, e um artefato por plataforma:
+  - Windows: MSI/EXE;
+  - Linux: formato a decidir (`.deb`, AppImage, Flatpak ou outro);
+  - macOS: DMG/PKG conforme estratégia futura, incluindo assinatura e notarização.
 - **Fora de escopo:** auto-update sem política de segurança e suporte.
-- **Aceite:** instalação limpa, atualização e desinstalação são testadas em Windows suportado.
-- **Dependências:** aplicação funcional e decisão de distribuição.
+- **Aceite:** instalação limpa, atualização e desinstalação testadas em cada plataforma que o produto decidir suportar na distribuição.
+- **Dependências:** aplicação funcional, `PlatformPaths` multiplataforma concluído e decisão de distribuição.
 
 ### Fase 12 — Fiscal futura
 
@@ -280,10 +316,23 @@ Testes devem começar cedo com unidade para domínio e aplicação, integração
 | Flyway | Aprovada | Migrations locais versionadas. |
 | JDBC puro | Aprovada | Repositórios pequenos, SQL explícito e previsível; JDBI só será reavaliado se houver custo real de repetição. |
 | Estoque local não autoritativo | Aprovada | Apenas snapshot/cache; nenhum terminal garante saldo global em tempo real durante queda de internet. |
-| Diretório operacional em `%LOCALAPPDATA%` | Aprovada | Convenção base: `%LOCALAPPDATA%\LucraOne\PDV\`, fora do repositório e de diretórios versionados. |
+| Diretório operacional fora do repositório | Aprovada | Estrutura `LucraOne/PDV/{data,logs,config}` fora do repositório e de diretórios versionados, com raiz nativa por plataforma. |
+| Aplicação multiplataforma | Aprovada | Plataformas-alvo Windows, Linux e macOS. O PDV não é um aplicativo Windows escrito em Java. |
+| `domain` e `application` independentes de SO | Aprovada | Nenhum detalhe de plataforma nas camadas internas; verificado por teste de fronteira de arquitetura. |
+| Adapters específicos em `infrastructure` | Aprovada | Todo detalhe de SO vive atrás de porta, em `infrastructure/security` e `infrastructure/platform`. |
+| `SecretStore` por plataforma | Direção aprovada · implementação futura | Windows/DPAPI disponível; Linux/Secret Service e macOS/Keychain pendentes. Sem fallback inseguro: a política é falhar de forma segura. |
+| `PlatformPaths` por plataforma | Direção aprovada · implementação futura | Windows/`LOCALAPPDATA`, Linux/XDG, macOS/Application Support. Pré-requisito para operação completa fora do Windows. |
+| Cliente HTTP do JDK | Aprovada | `java.net.http.HttpClient` com `sendAsync`; nenhuma biblioteca HTTP de terceiros foi adicionada. |
+| Jackson para JSON | Aprovada | `jackson-databind`, restrito aos DTOs de transporte em `infrastructure/api/dto`. |
+| Erros de API como exceção tipada | Aprovada | `PdvApiException` com `PdvApiFailure`, consistente com o estilo já usado em persistência e segurança. |
+| Retry assimétrico | Aprovada | Leituras idempotentes podem repetir uma vez; o `POST` de pareamento nunca repete, pois o código é de uso único. |
+| Machine credential somente em memória | Aprovada até a Fase 5 | Nenhuma persistência de token enquanto não houver secret store multiplataforma. |
 
 ## Decisões que continuam pendentes
 
+- formato de distribuição em Linux (`.deb`, AppImage, Flatpak ou outro);
+- estratégia de assinatura e notarização em macOS;
+- mecanismo definitivo de secret store em Linux e em macOS;
 - prazo máximo de validade do cache de preço;
 - política para produto desativado durante operação offline;
 - política de estoque offline: permitir, bloquear, limitar ou alertar em risco de saldo insuficiente;

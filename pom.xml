@@ -18,6 +18,7 @@
         <junit.version>5.12.2</junit.version>
         <sqlite.jdbc.version>3.53.4.0</sqlite.jdbc.version>
         <flyway.version>13.9.0</flyway.version>
+        <jackson.version>2.22.3</jackson.version>
     </properties>
 
     <dependencies>
@@ -35,6 +36,11 @@
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
             <version>${flyway.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>

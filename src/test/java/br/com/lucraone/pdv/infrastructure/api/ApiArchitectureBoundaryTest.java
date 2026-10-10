@@ -131,6 +131,16 @@ class ApiArchitectureBoundaryTest {
     }
 
     @Test
+    void theDomainHasNoSecretStoragePortDependency() {
+        assertEquals(List.of(), violations("domain", List.of("application.security", "application.auth")));
+    }
+
+    @Test
+    void thePresentationNeverPerformsBlockingInfrastructureOperations() {
+        assertEquals(List.of(), violations("presentation", List.of(".join()", "java.sql", "SecretStoreFactory", "libsecret", "DPAPI")));
+    }
+
+    @Test
     void thePresentationNeverTalksHttpItself() {
         List<String> found = violations("presentation", List.of("java.net.http", "com.fasterxml.jackson"));
 

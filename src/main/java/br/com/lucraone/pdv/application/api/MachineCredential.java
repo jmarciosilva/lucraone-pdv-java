@@ -6,9 +6,8 @@ import java.util.Objects;
 /**
  * Machine credential issued by the backend when a terminal is paired.
  *
- * <p>This value is secret. In this phase it exists only in memory, for the lifetime of the calling
- * flow: it is never written to the local database, to a properties file or to any other store, and
- * persistence is deliberately deferred until a platform secret store exists.
+ * <p>This value is secret. Its persistent lifecycle uses the application credential repository and
+ * the native SecretStore exclusively; it must never be written to SQLite or properties.
  *
  * <p>{@link #toString()} is redacted on purpose, so the credential cannot reach a log through a
  * record's generated representation.

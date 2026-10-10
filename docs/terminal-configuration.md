@@ -23,6 +23,8 @@ Arquivo opcional, não secreto, em UTF-8 no formato Java Properties:
 %LOCALAPPDATA%\LucraOne\PDV\config\bootstrap.properties
 ```
 
+O caminho é resolvido por `PlatformPaths.configDirectory()`: Linux usa `$XDG_CONFIG_HOME/LucraOne/PDV`, ou `~/.config/LucraOne/PDV`; macOS usa `config` sob Application Support. Veja [Plataforma](platform.md).
+
 ```properties
 environment=homologation
 api.base-url=https://api.exemplo.com.br
@@ -39,10 +41,10 @@ O bootstrap nunca deve conter senhas, tokens ou outras credenciais.
 
 ## Proteção de segredos
 
-A porta `SecretProtector` protege segredos futuros, como tokens. A implementação `WindowsDpapiSecretProtector` usa DPAPI (`CryptProtectData`/`CryptUnprotectData`) no escopo do usuário Windows atual, chamado pela Foreign Function API do JDK, sem dependência externa e sem chave gerenciada pela aplicação. Requer `--enable-native-access=ALL-UNNAMED`, já configurado para testes e para `javafx:run`.
+A porta `SecretProtector` continua protegendo/desprotegendo bytes. A porta `SecretStore` fica acima dela para save/load/delete: Windows persiste somente ciphertext DPAPI e Linux usa Secret Service nativo. macOS permanece explicitamente indisponível até a integração Keychain real. Nenhuma dessas portas está conectada à machine credential nesta rodada. Veja [Plataforma](platform.md). A implementação `WindowsDpapiSecretProtector` usa DPAPI (`CryptProtectData`/`CryptUnprotectData`) no escopo do usuário Windows atual, chamado pela Foreign Function API do JDK, sem dependência externa e sem chave gerenciada pela aplicação. Requer `--enable-native-access=ALL-UNNAMED`, já configurado para testes e para `javafx:run`.
 
 Ainda não há segredo real nem tabela de segredos. Material protegido só pode ser recuperado pelo mesmo usuário Windows no mesmo perfil; se o perfil for perdido, o segredo deve ser obtido novamente pelo fluxo de autenticação futuro, nunca reconstruído.
 
 ## Diagnóstico
 
-`TerminalService.initialize()` garante a identidade, valida o bootstrap e devolve `TerminalDiagnostics` com: `installation_id`, status de provisionamento, `terminal_id`/`branch_id` quando existirem, caminho do banco, estado e caminho do bootstrap, ambiente, URL da API configurada, versão do aplicativo e sistema operacional. O diagnóstico é local, não é enviado a nenhum serviço e não contém segredos.
+`TerminalService.initialize()` garante a identidade, valida o bootstrap e devolve `TerminalDiagnostics` com: `installation_id`, status de provisionamento, `terminal_id`/`branch_id` quando existirem, caminho do banco, estado e caminho do bootstrap, ambiente, URL da API configurada, versão do aplicativo e descrição do sistema operacional fornecida pela composição de infraestrutura (o caso de uso não inspeciona o SO). O diagnóstico é local, não é enviado a nenhum serviço e não contém segredos.

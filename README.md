@@ -108,9 +108,17 @@ O comando gera o artefato Maven de validação. Ainda não existe instalador par
 
 ## Persistência local
 
-O banco SQLite de cada terminal é inicializado em `%LOCALAPPDATA%\LucraOne\PDV\data\lucraone-pdv.db`. As migrations são executadas automaticamente pelo Flyway antes de o aplicativo ficar disponível.
+O banco SQLite de cada terminal fica em `data/lucraone-pdv.db`, sob a base operacional:
 
-A resolução do diretório operacional é, hoje, específica de Windows. Em Linux e macOS o aplicativo abre, mas informa que não pôde preparar o banco local, em vez de escolher um diretório alternativo por conta própria. A resolução nativa por plataforma está registrada no roadmap como ajuste arquitetural próprio, com testes específicos, e não foi misturada à fase de API.
+| Plataforma | Base |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\LucraOne\PDV` |
+| Linux | `$XDG_DATA_HOME/LucraOne/PDV`, ou `~/.local/share/LucraOne/PDV` |
+| macOS | `~/Library/Application Support/LucraOne/PDV` |
+
+`PlatformPaths` centraliza a resolução. Windows preserva a árvore existente e falha se a variável necessária estiver ausente. Linux usa XDG absoluto; configuração fica em `$XDG_CONFIG_HOME/LucraOne/PDV`, ou `~/.config/LucraOne/PDV`. No macOS, configuração fica em `config` na mesma base. Migrations Flyway executam antes de o aplicativo ficar disponível.
+
+SQLite, Flyway e estabilidade do `installation_id` foram testados em duas execuções JavaFX na sessão gráfica real do Ubuntu 24.04. Os paths macOS foram testados unitariamente, sem validação em host macOS. Detalhes em [Plataforma e armazenamento seguro](docs/platform.md).
 
 Os testes usam bancos temporários e não acessam o banco local do usuário. A política inicial de backup e recuperação está documentada em [Persistência local](docs/local-database.md).
 
@@ -122,7 +130,7 @@ TLS não é enfraquecido em nenhuma hipótese, `X-Request-ID` correlaciona cada 
 
 ## Identidade e configuração do terminal
 
-Na inicialização, o PDV garante um `installation_id` local e estável, informa se o terminal está provisionado e lê a configuração bootstrap opcional em `%LOCALAPPDATA%\LucraOne\PDV\config\bootstrap.properties`, sem realizar chamadas ao backend. Detalhes em [Identidade e configuração do terminal](docs/terminal-configuration.md).
+Na inicialização, o PDV garante um `installation_id` local e estável, informa se o terminal está provisionado e lê a configuração bootstrap opcional em `PlatformPaths.configDirectory()/bootstrap.properties`, sem realizar chamadas ao backend. Detalhes em [Identidade e configuração do terminal](docs/terminal-configuration.md).
 
 ## Estrutura do projeto
 
@@ -155,7 +163,7 @@ src/
 - `infrastructure`: adapters concretos — persistência, API HTTPS, segredos por plataforma e caminhos por plataforma.
 - `presentation`: JavaFX e interação com o usuário. Nunca fala HTTP diretamente.
 
-`infrastructure/platform` e os adapters de secret store por plataforma estão com a direção aprovada e documentada; apenas o adapter Windows de segredos existe hoje.
+`infrastructure/platform` implementa paths por plataforma. `SecretStore` declara save/load/delete: Windows reutiliza DPAPI e Linux usa libsecret/Secret Service. O limite macOS falha explicitamente; integração Keychain real permanece pendente. Nenhuma machine credential está conectada ao store.
 
 ## Desenvolvimento local
 
@@ -172,7 +180,7 @@ Hoje o projeto possui:
 - aplicação JavaFX executável;
 - Maven Wrapper;
 - arquitetura inicial em camadas;
-- persistência local com SQLite em `%LOCALAPPDATA%`;
+- persistência local com SQLite em paths nativos por plataforma;
 - migrations versionadas com Flyway, incluindo a V2 de identidade do terminal;
 - acesso a dados com JDBC puro;
 - transações JDBC com commit e rollback;
@@ -191,8 +199,7 @@ Hoje o projeto possui:
 
 - autenticação de operador e sessão operacional;
 - persistência segura da machine credential;
-- secret store para Linux e macOS;
-- resolução do diretório operacional em Linux e macOS;
+- integração Keychain real em macOS;
 - sincronização;
 - produtos;
 - carrinho;
@@ -204,6 +211,14 @@ Hoje o projeto possui:
 - operação offline;
 - NFC-e/NF-e;
 - instalador para Windows, Linux e macOS.
+
+## Armazenamento seguro
+
+Linux requer `libsecret-1.so.0` (API binária >= 0.19), GLib/GIO/GObject e um Secret Service funcional na sessão do usuário. A integração usa FFM do JDK, sem `secret-tool`, subprocesso ou nova dependência Maven. Sem provider, com item bloqueado ou com falha, não existe fallback plaintext. macOS permanece plataforma-alvo: paths testados unitariamente; SecretStore depende de implementação e validação real em macOS.
+
+## Requisito de operação offline
+
+A indisponibilidade temporária da internet não deve impedir vendas elegíveis com dados e meios de pagamento disponíveis localmente. SQLite é fundamento dessa continuidade. Catálogo/preço local, venda local, outbox e sincronização após reconexão serão construídos nas fases futuras; o operador deverá visualizar **Online / Offline / Sincronização pendente**. Nada desses fluxos foi implementado neste pré-requisito.
 
 ## Próximas etapas
 

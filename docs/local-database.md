@@ -12,7 +12,9 @@ Cada terminal utiliza um banco SQLite independente. Em Windows, a convenção op
   config\
 ```
 
-O banco nunca é criado no repositório, junto do JAR, em `src/` ou em compartilhamento de rede. Se `LOCALAPPDATA` não estiver disponível, a aplicação falha de forma explícita; ela não usa diretório atual, temporário ou home como alternativa de produção.
+O banco nunca é criado no repositório, junto do JAR, em `src/` ou em compartilhamento de rede. Em Windows, se `LOCALAPPDATA` não estiver disponível, a aplicação falha explicitamente, sem fallback. Linux e macOS usam os respectivos adapters de `PlatformPaths`, documentados em [Plataforma](platform.md). Linux segue XDG para dados e configuração; macOS usa Application Support.
+
+No Linux, o banco fica em `$XDG_DATA_HOME/LucraOne/PDV/data/lucraone-pdv.db`, ou `~/.local/share/LucraOne/PDV/data/lucraone-pdv.db`. No macOS, em `~/Library/Application Support/LucraOne/PDV/data/lucraone-pdv.db`. Os paths macOS são testados unitariamente; execução real macOS permanece pendente.
 
 ## Inicialização e migrations
 

@@ -21,10 +21,10 @@ import java.util.concurrent.CompletionException;
  * <ol>
  *   <li>Generate an operation_id.</li>
  *   <li>Persist the pending rotation in SQLite BEFORE calling the backend (crash recovery).</li>
- *   <li>Call {@code POST /credential-rotations} with the current machine credential.</li>
+ *   <li>Call {@code POST /terminal/credential/rotations} with the current machine credential.</li>
  *   <li>Obtain the candidate credential from the response.</li>
  *   <li>Persist the candidate credential in the SecretStore under the candidate key.</li>
- *   <li>Call {@code POST /credential-rotations/{id}/confirm} with the candidate credential.</li>
+ *   <li>Call {@code POST /terminal/credential/confirm} with the candidate credential.</li>
  *   <li>Replace the machine credential in the SecretStore with the confirmed candidate.</li>
  *   <li>Delete the pending rotation record from SQLite.</li>
  * </ol>
@@ -92,17 +92,23 @@ public final class CredentialRotationService {
                     rotationResult.requestId());
         }
 
+        java.time.Instant operationalExpiry;
         try {
-            gateway.confirmRotation(candidate, rotationResult.operationId()).join();
+            operationalExpiry = gateway.confirmRotation(candidate, rotationResult.operationId()).join();
         } catch (RuntimeException error) {
-            // Confirm failed: remove candidate credential and leave pending record for diagnostics.
-            try {
-                candidateCredentials.delete();
-            } catch (RuntimeException ignored) {}
+            // Confirmation can have committed even if its response was lost; keep the candidate protected.
             Throwable cause = error instanceof CompletionException ? error.getCause() : error;
             String requestId = cause instanceof PdvApiException api
                     ? api.failure().requestId().orElse(null) : null;
             throw new TerminalAuthException(TerminalAuthException.Kind.BACKEND_FAILURE, requestId);
+        }
+        if (operationalExpiry == null || !operationalExpiry.isAfter(clock.instant()))
+            throw new TerminalAuthException(TerminalAuthException.Kind.CONTEXT_MISMATCH, rotationResult.requestId());
+        candidate = new MachineCredential(candidate.tokenType(), candidate.accessToken(), operationalExpiry);
+        try {
+            candidateCredentials.save(candidate);
+        } catch (RuntimeException error) {
+            throw new TerminalAuthException(TerminalAuthException.Kind.PERSISTENCE_FAILED, rotationResult.requestId());
         }
 
         // Promote candidate to current credential.

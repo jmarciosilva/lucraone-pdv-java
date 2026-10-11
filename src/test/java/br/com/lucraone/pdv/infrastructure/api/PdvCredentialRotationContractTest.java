@@ -30,15 +30,16 @@ class PdvCredentialRotationContractTest {
     @Test
     void prepareRotationReturnsCandidateCredential() {
         try (PdvTestBackend backend = PdvTestBackend.start()) {
-            backend.enqueue(StubResponse.json(201,
+            backend.enqueue(StubResponse.json(200,
                     PdvApiFixtures.CREDENTIAL_ROTATION_SUCCESS.formatted(FAKE_OP_ID, FAKE_NEW_TOKEN)));
             try (HttpPdvBackendGateway gateway = new HttpPdvBackendGateway(backend.baseUrl(), settings())) {
                 CredentialRotationResult result = gateway.prepareRotation(credential(),
                         new CredentialRotationCommand(FAKE_OP_ID, FAKE_OP_ID)).join();
                 assertEquals(FAKE_OP_ID, result.operationId());
-                assertEquals("pending", result.status());
+                assertEquals("PENDING", result.status());
                 assertNotNull(result.candidateCredential());
                 assertEquals("Bearer", result.candidateCredential().tokenType());
+                assertEquals("/api/v1/pdv/terminal/credential/rotations", backend.singleRequest().path());
             }
         }
     }
@@ -47,7 +48,7 @@ class PdvCredentialRotationContractTest {
     void prepareRotationNeverRetries() {
         try (PdvTestBackend backend = PdvTestBackend.start()) {
             backend.enqueue(StubResponse.json(503, "{}"));
-            backend.enqueue(StubResponse.json(201,
+            backend.enqueue(StubResponse.json(200,
                     PdvApiFixtures.CREDENTIAL_ROTATION_SUCCESS.formatted(FAKE_OP_ID, FAKE_NEW_TOKEN)));
             try (HttpPdvBackendGateway gateway = new HttpPdvBackendGateway(backend.baseUrl(), settings())) {
                 PdvFailureKind kind = failureOf(gateway.prepareRotation(credential(),
@@ -72,23 +73,26 @@ class PdvCredentialRotationContractTest {
     }
 
     @Test
-    void confirmRotationReturnsConfirmedAt() {
+    void confirmRotationReturnsConfirmedOperationalExpiry() {
         try (PdvTestBackend backend = PdvTestBackend.start()) {
-            backend.enqueue(StubResponse.json(200, PdvApiFixtures.CREDENTIAL_CONFIRM_SUCCESS));
+            backend.enqueue(StubResponse.json(200, PdvApiFixtures.CREDENTIAL_CONFIRM_SUCCESS.formatted(FAKE_OP_ID)));
             try (HttpPdvBackendGateway gateway = new HttpPdvBackendGateway(backend.baseUrl(), settings())) {
-                Instant confirmedAt = gateway.confirmRotation(credential(), FAKE_OP_ID).join();
-                assertEquals(Instant.parse("2026-10-11T14:00:00Z"), confirmedAt);
+                Instant expiresAt = gateway.confirmRotation(credential(), FAKE_OP_ID).join();
+                assertEquals(Instant.parse("2027-10-11T12:00:00Z"), expiresAt);
             }
         }
     }
 
     @Test
-    void confirmRotationUsesAuthorizationHeader() {
+    void confirmRotationUsesAuthorizationHeader() throws Exception {
         try (PdvTestBackend backend = PdvTestBackend.start()) {
-            backend.enqueue(StubResponse.json(200, PdvApiFixtures.CREDENTIAL_CONFIRM_SUCCESS));
+            backend.enqueue(StubResponse.json(200, PdvApiFixtures.CREDENTIAL_CONFIRM_SUCCESS.formatted(FAKE_OP_ID)));
             try (HttpPdvBackendGateway gateway = new HttpPdvBackendGateway(backend.baseUrl(), settings())) {
                 gateway.confirmRotation(credential(), FAKE_OP_ID).join();
                 var request = backend.requests().get(0);
+                assertEquals("/api/v1/pdv/terminal/credential/confirm", request.path());
+                assertEquals(FAKE_OP_ID, com.fasterxml.jackson.databind.json.JsonMapper.builder().build()
+                        .readTree(request.body()).path("operation_id").asText());
                 String auth = request.header("authorization").orElseThrow();
                 assertEquals("Bearer " + FAKE_TOKEN, auth);
             }
@@ -99,7 +103,7 @@ class PdvCredentialRotationContractTest {
     void confirmRotationNeverRetries() {
         try (PdvTestBackend backend = PdvTestBackend.start()) {
             backend.enqueue(StubResponse.json(503, "{}"));
-            backend.enqueue(StubResponse.json(200, PdvApiFixtures.CREDENTIAL_CONFIRM_SUCCESS));
+            backend.enqueue(StubResponse.json(200, PdvApiFixtures.CREDENTIAL_CONFIRM_SUCCESS.formatted(FAKE_OP_ID)));
             try (HttpPdvBackendGateway gateway = new HttpPdvBackendGateway(backend.baseUrl(), settings())) {
                 PdvFailureKind kind = failureOf(gateway.confirmRotation(credential(), FAKE_OP_ID)).kind();
                 assertEquals(PdvFailureKind.SERVER_ERROR, kind);

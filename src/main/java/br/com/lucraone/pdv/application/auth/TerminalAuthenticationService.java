@@ -60,7 +60,7 @@ public final class TerminalAuthenticationService {
                     case SECURE_STORE_UNAVAILABLE -> TerminalAuthState.SECURE_STORE_UNAVAILABLE;
                     default -> TerminalAuthState.VALIDATION_FAILED;
                 };
-                return new TerminalAuthSnapshot(state, error.requestId(), Optional.empty(), Optional.empty());
+                return new TerminalAuthSnapshot(state, error.requestId(), Optional.empty(), Optional.empty(), Optional.empty());
             }
             return restoreBlocking();
         });
@@ -73,6 +73,13 @@ public final class TerminalAuthenticationService {
      */
     public MachineCredential loadStoredCredential() {
         return credentials.load().map(stored -> stored.credential()).orElse(null);
+    }
+
+    /** Non-secret local references for the suspended-terminal screen and recovery request. */
+    public LocalTerminalIdentity localIdentity() {
+        Installation installation = terminals.findInstallation().orElseThrow();
+        TerminalProvisioning provisioning = terminals.findProvisioning().orElseThrow();
+        return new LocalTerminalIdentity(installation.installationId(), provisioning.terminalId(), provisioning.branchId());
     }
 
     public CompletableFuture<TerminalAuthSnapshot> forget() {
@@ -189,12 +196,19 @@ public final class TerminalAuthenticationService {
             }
             return snapshot(TerminalAuthState.CREDENTIAL_PRESENT_UNVERIFIED, credential, requestId, kind);
         }
-        return snapshot(TerminalAuthState.VALIDATION_FAILED, credential, requestId, kind);
+        return snapshot(TerminalAuthState.VALIDATION_FAILED, credential, requestId, kind,
+                error.failure().retryAfter().orElse(null));
     }
 
     private static TerminalAuthSnapshot snapshot(TerminalAuthState state, MachineCredential credential,
             String requestId, PdvFailureKind kind) {
         return new TerminalAuthSnapshot(state, Optional.ofNullable(requestId),
-                Optional.ofNullable(kind), Optional.of(credential.expiresAt()));
+                Optional.ofNullable(kind), Optional.of(credential.expiresAt()), Optional.empty());
+    }
+
+    private static TerminalAuthSnapshot snapshot(TerminalAuthState state, MachineCredential credential,
+            String requestId, PdvFailureKind kind, java.time.Duration retryAfter) {
+        return new TerminalAuthSnapshot(state, Optional.ofNullable(requestId), Optional.ofNullable(kind),
+                Optional.of(credential.expiresAt()), Optional.ofNullable(retryAfter));
     }
 }

@@ -16,6 +16,7 @@ import br.com.lucraone.pdv.application.api.PdvApiFailure;
 import br.com.lucraone.pdv.application.api.PdvBackendGateway;
 import br.com.lucraone.pdv.application.api.PdvFailureKind;
 import br.com.lucraone.pdv.infrastructure.api.dto.CredentialConfirmRequestDto;
+import br.com.lucraone.pdv.infrastructure.api.dto.CredentialRecoveryRequestDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.CredentialRotationRequestDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.OperatorLoginRequestDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.PairTerminalRequestDto;
@@ -299,7 +300,7 @@ public final class HttpPdvBackendGateway implements PdvBackendGateway, AutoClose
     public CompletableFuture<Instant> confirmRotation(MachineCredential candidateCredential, String operationId) {
         Objects.requireNonNull(candidateCredential, "candidateCredential must not be null");
         Objects.requireNonNull(operationId, "operationId must not be null");
-        String confirmPath = PdvApiEndpoints.CREDENTIAL_CONFIRM.formatted(operationId);
+        String confirmPath = PdvApiEndpoints.CREDENTIAL_CONFIRM;
         String payload;
         try {
             payload = objectMapper.writeValueAsString(new CredentialConfirmRequestDto(operationId));
@@ -316,9 +317,46 @@ public final class HttpPdvBackendGateway implements PdvBackendGateway, AutoClose
                         .header("Content-Type", JSON_MEDIA_TYPE)
                         .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
                         .build(),
-                responseMapper::credentialConfirm,
+                (body, requestId) -> responseMapper.credentialConfirm(body, requestId, operationId),
                 SINGLE_ATTEMPT
         );
+    }
+
+    @Override
+    public CompletableFuture<CredentialRotationResult> recoverCredential(String recoveryCode, String installationId,
+            String deliverySecret) {
+        Objects.requireNonNull(recoveryCode);
+        Objects.requireNonNull(installationId);
+        Objects.requireNonNull(deliverySecret);
+        final String payload;
+        try {
+            payload = objectMapper.writeValueAsString(new CredentialRecoveryRequestDto(recoveryCode, installationId, deliverySecret));
+        } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException exception) {
+            return CompletableFuture.failedFuture(new PdvApiException(PdvApiFailure.of(PdvFailureKind.PROTOCOL_ERROR, null)));
+        }
+        return dispatch("recover_machine_credential", "POST", PdvApiEndpoints.CREDENTIAL_RECOVER,
+                requestId -> baseRequest(PdvApiEndpoints.CREDENTIAL_RECOVER, requestId)
+                        .header("Content-Type", JSON_MEDIA_TYPE)
+                        .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8)).build(),
+                responseMapper::credentialRecovery, SINGLE_ATTEMPT);
+    }
+
+    @Override
+    public CompletableFuture<Instant> confirmRecoveredCredential(MachineCredential candidateCredential, String operationId) {
+        Objects.requireNonNull(candidateCredential);
+        Objects.requireNonNull(operationId);
+        final String payload;
+        try {
+            payload = objectMapper.writeValueAsString(new CredentialConfirmRequestDto(operationId));
+        } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException exception) {
+            return CompletableFuture.failedFuture(new PdvApiException(PdvApiFailure.of(PdvFailureKind.PROTOCOL_ERROR, null)));
+        }
+        return dispatch("confirm_recovered_credential", "POST", PdvApiEndpoints.CREDENTIAL_CONFIRM,
+                requestId -> baseRequest(PdvApiEndpoints.CREDENTIAL_CONFIRM, requestId)
+                        .header("Authorization", candidateCredential.tokenType() + " " + candidateCredential.accessToken())
+                        .header("Content-Type", JSON_MEDIA_TYPE)
+                        .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8)).build(),
+                (body, requestId) -> responseMapper.credentialConfirm(body, requestId, operationId), SINGLE_ATTEMPT);
     }
 
     private HttpRequest.Builder baseRequest(String endpointPath, String requestId) {

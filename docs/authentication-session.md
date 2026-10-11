@@ -1,6 +1,51 @@
 # Fase 5 — Autenticação e sessão operacional
 
-**Estado: CONCLUÍDA.** Lifecycle seguro da credencial de terminal, rotação de credencial e sessão de operador implementados. A Fase 4 continua concluída. A Fase 6 não foi iniciada.
+**Estado: IMPLEMENTADA EM TESTES; bloqueio remoto aguarda validação real supervisionada.** Lifecycle seguro da credencial de terminal, rotação, sessão de operador, monitoramento e recuperação oficial de credencial estão no cliente Java. A Fase 4 continua concluída. A Fase 6 não foi iniciada.
+
+## Bloqueio remoto e recuperação da credencial (implementação Java)
+
+O cliente consulta `GET /api/v1/pdv/terminal` após validação inicial e a cada 30 segundos enquanto
+o terminal estiver online e autorizado. O intervalo pode ser ajustado para homologação com a
+propriedade JVM `-Dlucraone.pdv.authorization-poll-seconds=N`; o mínimo aceito pelo aplicativo é
+10 segundos. As consultas são serializadas, não se sobrepõem e usam o timeout HTTP normal. `429`
+respeita `Retry-After` por no mínimo o intervalo configurado. O monitor fecha no encerramento do
+aplicativo.
+
+401/403 em consulta autenticada não são apresentados como prova de bloqueio administrativo: podem
+representar credencial revogada/expirada ou outra condição de autorização. O cliente remove a
+credencial de máquina rejeitada pelo lifecycle existente, invalida a sessão humana em memória e
+substitui imediatamente a tela operacional por **Terminal sem autorização**. Installation ID,
+terminal ID e filial permanecem no SQLite. Não há autorização comercial offline nesta fase; timeout,
+rede indisponível, 429, 5xx e contrato inválido suspendem a operação e recebem mensagens próprias,
+sem classificar terminal bloqueado.
+
+Ao perder conexão, a credencial de máquina válida permanece no SecretStore segundo o comportamento
+online/offline já existente, mas a sessão humana é descartada localmente e o caixa fica suspenso.
+Após reconexão e confirmação online, o aplicativo volta ao login do operador; não restaura a sessão
+humana anterior. A revalidação humana agendada publica snapshots para a apresentação e descarta
+callbacks antigos depois de logout/invalidação.
+
+### Recuperação após desbloqueio administrativo
+
+O backend Laravel foi inspecionado em modo somente leitura. Ao sair de ACTIVE, o lifecycle oficial
+revoga os tokens de máquina. Desbloquear depois não ressuscita o token anterior. A sequência oficial
+é: administrador desbloqueia o terminal; emite código de recuperação para terminal ACTIVE e já
+instalado; entrega o código por canal protegido; o PDV consome esse código. BLOCKED não é elegível
+para emissão/consumo até a ação administrativa de desbloqueio. REVOKED não é reativável.
+
+O cliente aceita apenas o código emitido pelo administrador. Antes do POST público
+`/terminal/credential/recover`, grava recovery code, installation ID e `delivery_secret` CSPRNG no
+SecretStore protegido. O candidato retornado é persistido numa chave protegida separada antes da
+confirmação em `/terminal/credential/confirm`. Só após confirmação o candidato substitui a credencial
+atual; então o Java valida `GET /terminal` e retorna ao login humano. Prova e candidato são mantidos
+em caso de resposta ambígua para retry idempotente; não são gravados em SQLite, properties ou logs.
+Uma tentativa pendente aceita apenas o mesmo código. Não há pairing automático nem alteração da
+identidade local.
+
+O endpoint de emissão de código administrativo não é chamado pelo PDV. Ele exige autenticação humana
+com permissão administrativa e deve ser operado no painel. O Java não pede senha de administrador.
+O teste real de desbloqueio/recuperação do PDV-001 permanece pendente de autorização e execução
+presencial; nenhuma recuperação real foi iniciada nesta implementação.
 
 ## Contratos implementados — Fase 5
 
@@ -12,8 +57,8 @@
 - `GET /api/v1/pdv/operator-session` — consulta sessão (Bearer + X-PDV-Operator-Session)
 - `POST /api/v1/pdv/operator-session/revalidate` — revalida janela deslizante (sem retry)
 - `DELETE /api/v1/pdv/operator-session` — logout do operador (sem retry)
-- `POST /api/v1/pdv/credential-rotations` — prepara rotação (sem retry)
-- `POST /api/v1/pdv/credential-rotations/{id}/confirm` — confirma rotação (sem retry)
+- `POST /api/v1/pdv/terminal/credential/rotations` — prepara rotação (sem retry)
+- `POST /api/v1/pdv/terminal/credential/confirm` — confirma rotação/recuperação (sem retry)
 
 Sessão do operador é mantida em memória. Nenhum token de operador ou senha é armazenado em SQLite, SecretStore ou logs. A identidade do terminal continua separada da sessão do operador; nenhuma das duas autoriza vendas offline na Fase 5.
 

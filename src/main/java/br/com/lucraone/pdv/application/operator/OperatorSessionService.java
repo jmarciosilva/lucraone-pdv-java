@@ -18,6 +18,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -36,6 +39,7 @@ public final class OperatorSessionService implements AutoCloseable {
     private final PdvBackendGateway gateway;
     private final Clock clock;
     private final Executor executor;
+    private final Supplier<MachineCredential> machineCredentialSupplier;
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "operator-session-revalidator");
         t.setDaemon(true);
@@ -46,15 +50,25 @@ public final class OperatorSessionService implements AutoCloseable {
     private volatile OperatorSessionData activeSession;
     private volatile MachineCredential loginMachineCredential;
     private volatile ScheduledFuture<?> revalidationTask;
+    private final CopyOnWriteArrayList<Consumer<OperatorAuthSnapshot>> listeners = new CopyOnWriteArrayList<>();
+    private final AtomicLong generation = new AtomicLong();
+    private final java.util.concurrent.atomic.AtomicBoolean revalidationInFlight = new java.util.concurrent.atomic.AtomicBoolean();
 
     public OperatorSessionService(PdvBackendGateway gateway, Clock clock, Executor executor) {
+        this(gateway, clock, executor, () -> null);
+    }
+
+    public OperatorSessionService(PdvBackendGateway gateway, Clock clock, Executor executor,
+            Supplier<MachineCredential> machineCredentialSupplier) {
         this.gateway = Objects.requireNonNull(gateway);
         this.clock = Objects.requireNonNull(clock);
         this.executor = Objects.requireNonNull(executor);
+        this.machineCredentialSupplier = Objects.requireNonNull(machineCredentialSupplier);
     }
 
     public CompletableFuture<OperatorAuthSnapshot> login(MachineCredential machineCredential,
             OperatorLoginCommand command) {
+        long loginGeneration = generation.incrementAndGet();
         return execute(() -> {
             OperatorLoginResult result;
             try {
@@ -64,6 +78,7 @@ public final class OperatorSessionService implements AutoCloseable {
             }
             OperatorCredential credential = result.credential();
             OperatorSessionData session = result.sessionData();
+            if (generation.get() != loginGeneration) return OperatorAuthSnapshot.of(OperatorAuthState.NOT_AUTHENTICATED);
             if (credential.expiresAt().isBefore(clock.instant())) {
                 return OperatorAuthSnapshot.of(OperatorAuthState.SESSION_INVALID);
             }
@@ -77,31 +92,47 @@ public final class OperatorSessionService implements AutoCloseable {
     }
 
     public CompletableFuture<OperatorAuthSnapshot> revalidate(MachineCredential machineCredential) {
+        if (!revalidationInFlight.compareAndSet(false, true))
+            return CompletableFuture.completedFuture(snapshot());
         return execute(() -> {
+            long checkGeneration = generation.get();
             OperatorCredential credential = activeCredential;
             OperatorSessionData session = activeSession;
             if (credential == null || session == null) {
                 return OperatorAuthSnapshot.of(OperatorAuthState.NOT_AUTHENTICATED);
             }
             if (credential.expiresAt().isBefore(clock.instant())) {
+                generation.incrementAndGet();
                 clearSession();
                 return OperatorAuthSnapshot.of(OperatorAuthState.NOT_AUTHENTICATED);
             }
+            MachineCredential currentMachineCredential = machineCredential;
+            if (currentMachineCredential == null) {
+                try { currentMachineCredential = machineCredentialSupplier.get(); }
+                catch (RuntimeException unavailable) { return OperatorAuthSnapshot.of(OperatorAuthState.UNAVAILABLE); }
+            }
+            if (currentMachineCredential == null) return OperatorAuthSnapshot.of(OperatorAuthState.UNAVAILABLE);
             OperatorSessionData updated;
             try {
-                updated = gateway.revalidateOperatorSession(machineCredential, credential.accessToken()).join();
+                updated = gateway.revalidateOperatorSession(currentMachineCredential, credential.accessToken()).join();
             } catch (RuntimeException error) {
-                return snapshotFromException(error);
+                OperatorAuthSnapshot failed = snapshotFromException(error);
+                if (failed.state() == OperatorAuthState.SESSION_INVALID || failed.state() == OperatorAuthState.ACCESS_DENIED
+                        || failed.state() == OperatorAuthState.SESSION_CONFLICT) clearSession();
+                return failed;
             }
+            if (generation.get() != checkGeneration) return OperatorAuthSnapshot.of(OperatorAuthState.NOT_AUTHENTICATED);
             activeSession = updated;
             return new OperatorAuthSnapshot(OperatorAuthState.AUTHENTICATED, Optional.of(updated), Optional.empty());
-        });
+        }).thenApply(snapshot -> { listeners.forEach(listener -> listener.accept(snapshot)); return snapshot; })
+                .whenComplete((snapshot, error) -> revalidationInFlight.set(false));
     }
 
     public CompletableFuture<OperatorAuthSnapshot> logout(MachineCredential machineCredential) {
+        OperatorCredential credential = activeCredential;
+        generation.incrementAndGet();
+        clearSession();
         return execute(() -> {
-            OperatorCredential credential = activeCredential;
-            clearSession();
             if (credential == null) {
                 return OperatorAuthSnapshot.of(OperatorAuthState.NOT_AUTHENTICATED);
             }
@@ -121,10 +152,22 @@ public final class OperatorSessionService implements AutoCloseable {
             return OperatorAuthSnapshot.of(OperatorAuthState.NOT_AUTHENTICATED);
         }
         if (credential.expiresAt().isBefore(clock.instant())) {
+            generation.incrementAndGet();
             clearSession();
             return OperatorAuthSnapshot.of(OperatorAuthState.NOT_AUTHENTICATED);
         }
         return new OperatorAuthSnapshot(OperatorAuthState.AUTHENTICATED, Optional.of(session), Optional.empty());
+    }
+
+    public void addListener(Consumer<OperatorAuthSnapshot> listener) { listeners.add(Objects.requireNonNull(listener)); }
+    public void removeListener(Consumer<OperatorAuthSnapshot> listener) { listeners.remove(listener); }
+
+    /** Immediately drops local operator authority without making a request with a rejected machine token. */
+    public void invalidateLocal() {
+        generation.incrementAndGet();
+        clearSession();
+        OperatorAuthSnapshot invalidated = OperatorAuthSnapshot.of(OperatorAuthState.SESSION_INVALID);
+        listeners.forEach(listener -> listener.accept(invalidated));
     }
 
     @Override
@@ -143,7 +186,9 @@ public final class OperatorSessionService implements AutoCloseable {
     private void scheduleRevalidation(MachineCredential machineCredential) {
         cancelRevalidation();
         revalidationTask = scheduler.scheduleAtFixedRate(
-                () -> revalidate(machineCredential).join(),
+                () -> {
+                    revalidate(null);
+                },
                 REVALIDATION_INTERVAL_MINUTES, REVALIDATION_INTERVAL_MINUTES, TimeUnit.MINUTES);
     }
 
@@ -186,7 +231,7 @@ public final class OperatorSessionService implements AutoCloseable {
                 case UNAUTHENTICATED, FORBIDDEN -> OperatorAuthState.ACCESS_DENIED;
                 case RATE_LIMITED -> OperatorAuthState.RATE_LIMITED;
                 case SERVER_ERROR -> OperatorAuthState.BACKEND_ERROR;
-                case PROTOCOL_ERROR, VALIDATION, PAIRING_FAILED, ROTATION_CONFLICT -> OperatorAuthState.PROTOCOL_ERROR;
+                case PROTOCOL_ERROR, VALIDATION, PAIRING_FAILED, ROTATION_CONFLICT, CREDENTIAL_RECOVERY_FAILED -> OperatorAuthState.PROTOCOL_ERROR;
                 default -> OperatorAuthState.UNAVAILABLE;
             };
             return new OperatorAuthSnapshot(state, Optional.empty(), api.failure().requestId());

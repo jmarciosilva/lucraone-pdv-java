@@ -77,14 +77,13 @@ final class PdvApiFixtures {
 
     static final String CREDENTIAL_ROTATION_SUCCESS = """
             {"data":{
-              "operation_id":"%s",
-              "status":"pending",
-              "rotation_expires_at":"2026-12-31T23:59:59Z",
-              "credential":{"token_type":"Bearer","access_token":"%s","expires_at":"2027-12-31T23:59:59Z"}
+              "rotation":{"id":"%s","status":"PENDING","expires_at":"2026-10-11T12:10:00Z"},
+              "credential":{"token_type":"Bearer","access_token":"%s","expires_at":"2026-10-11T12:10:00Z"}
             }}""";
 
     static final String CREDENTIAL_CONFIRM_SUCCESS = """
-            {"data":{"confirmed_at":"2026-10-11T14:00:00Z"}}""";
+            {"data":{"rotation":{"id":"%s","status":"CONFIRMED","expires_at":"2026-10-11T12:10:00Z"},
+              "credential":{"token_type":"Bearer","expires_at":"2027-10-11T12:00:00Z"}}}""";
 
     private PdvApiFixtures() {
     }

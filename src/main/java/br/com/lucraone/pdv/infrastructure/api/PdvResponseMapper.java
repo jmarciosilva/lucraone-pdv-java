@@ -16,9 +16,10 @@ import br.com.lucraone.pdv.application.api.PdvFailureKind;
 import br.com.lucraone.pdv.application.api.TerminalContext;
 import br.com.lucraone.pdv.infrastructure.api.dto.BranchDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.CompanyDto;
-import br.com.lucraone.pdv.infrastructure.api.dto.CredentialConfirmResponseDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.CredentialDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.CredentialRotationResponseDto;
+import br.com.lucraone.pdv.infrastructure.api.dto.CredentialRecoveryResponseDto;
+import br.com.lucraone.pdv.infrastructure.api.dto.CredentialLifecycleConfirmResponseDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.CurrentTerminalResponseDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.HealthResponseDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.OperatorDataDto;
@@ -133,23 +134,41 @@ final class PdvResponseMapper {
     CredentialRotationResult credentialRotation(String body, String requestId) {
         CredentialRotationResponseDto dto = read(body, CredentialRotationResponseDto.class, requestId);
         CredentialRotationResponseDto.Data data = required(dto.data(), requestId);
+        CredentialRotationResponseDto.Rotation rotation = required(data.rotation(), requestId);
         CredentialDto cred = required(data.credential(), requestId);
         MachineCredential candidate = new MachineCredential(
                 required(cred.tokenType(), requestId),
                 required(cred.accessToken(), requestId),
                 instant(cred.expiresAt(), requestId));
         return new CredentialRotationResult(
-                required(data.operationId(), requestId),
-                required(data.status(), requestId),
-                instant(data.rotationExpiresAt(), requestId),
+                required(rotation.id(), requestId),
+                required(rotation.status(), requestId),
+                instant(rotation.expiresAt(), requestId),
                 candidate,
                 requestId);
     }
 
-    Instant credentialConfirm(String body, String requestId) {
-        CredentialConfirmResponseDto dto = read(body, CredentialConfirmResponseDto.class, requestId);
-        CredentialConfirmResponseDto.Data data = required(dto.data(), requestId);
-        return instant(data.confirmedAt(), requestId);
+    Instant credentialConfirm(String body, String requestId, String expectedOperationId) {
+        CredentialLifecycleConfirmResponseDto dto = read(body, CredentialLifecycleConfirmResponseDto.class, requestId);
+        CredentialLifecycleConfirmResponseDto.Data data = required(dto.data(), requestId);
+        CredentialLifecycleConfirmResponseDto.Rotation rotation = required(data.rotation(), requestId);
+        CredentialDto credential = required(data.credential(), requestId);
+        if (!required(rotation.id(), requestId).equals(expectedOperationId)) throw invalidResponse(requestId);
+        if (!"CONFIRMED".equals(required(rotation.status(), requestId))) throw invalidResponse(requestId);
+        instant(rotation.expiresAt(), requestId);
+        if (!"Bearer".equals(required(credential.tokenType(), requestId))) throw invalidResponse(requestId);
+        return instant(credential.expiresAt(), requestId);
+    }
+
+    CredentialRotationResult credentialRecovery(String body, String requestId) {
+        CredentialRecoveryResponseDto dto = read(body, CredentialRecoveryResponseDto.class, requestId);
+        CredentialRecoveryResponseDto.Data data = required(dto.data(), requestId);
+        CredentialRecoveryResponseDto.Rotation rotation = required(data.rotation(), requestId);
+        CredentialDto credential = required(data.credential(), requestId);
+        MachineCredential candidate = new MachineCredential(required(credential.tokenType(), requestId),
+                required(credential.accessToken(), requestId), instant(credential.expiresAt(), requestId));
+        return new CredentialRotationResult(required(rotation.id(), requestId), required(rotation.status(), requestId),
+                instant(rotation.expiresAt(), requestId), candidate, requestId);
     }
 
     private OperatorSessionData sessionData(OperatorSessionDto session, OperatorDataDto op, String requestId) {

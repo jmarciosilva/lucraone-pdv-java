@@ -44,4 +44,15 @@ public interface PdvBackendGateway {
 
     /** Confirms the rotation using the candidate credential and returns the confirmed-at instant. Never retried. */
     CompletableFuture<Instant> confirmRotation(MachineCredential candidateCredential, String operationId);
+
+    /** Consumes an administrator-issued recovery code; never retries automatically. */
+    default CompletableFuture<CredentialRotationResult> recoverCredential(String recoveryCode, String installationId,
+            String deliverySecret) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Credential recovery not supported."));
+    }
+
+    /** Promotes a recovered candidate through the backend's official recovery confirmation route. */
+    default CompletableFuture<Instant> confirmRecoveredCredential(MachineCredential candidateCredential, String operationId) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Credential recovery confirmation not supported."));
+    }
 }

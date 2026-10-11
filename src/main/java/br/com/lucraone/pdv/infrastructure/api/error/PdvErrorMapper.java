@@ -40,6 +40,7 @@ public final class PdvErrorMapper {
     private static final String CODE_OPERATOR_SESSION_INVALID = "operator_session_invalid";
     private static final String CODE_OPERATOR_SESSION_CONFLICT = "operator_session_conflict";
     private static final String CODE_ROTATION_CONFLICT = "credential_conflict";
+    private static final String CODE_RECOVERY_FAILED = "recovery_failed";
 
     private final ObjectMapper objectMapper;
     private final Supplier<ZonedDateTime> now;
@@ -164,6 +165,8 @@ public final class PdvErrorMapper {
                     return PdvFailureKind.OPERATOR_SESSION_CONFLICT;
                 case CODE_ROTATION_CONFLICT:
                     return PdvFailureKind.ROTATION_CONFLICT;
+                case CODE_RECOVERY_FAILED:
+                    return PdvFailureKind.CREDENTIAL_RECOVERY_FAILED;
                 default:
                     break;
             }

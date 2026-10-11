@@ -46,5 +46,7 @@ public enum PdvFailureKind {
     OPERATOR_SESSION_CONFLICT,
 
     /** HTTP 409 on rotation: a concurrent rotation is already in progress. */
-    ROTATION_CONFLICT
+    ROTATION_CONFLICT,
+    /** The backend rejected an administrator-issued recovery proof. */
+    CREDENTIAL_RECOVERY_FAILED
 }

@@ -40,7 +40,7 @@ final class AuthFixtures {
         public void save(TerminalValidation v){if(failSave)throw new IllegalStateException();value=v;}
         public void invalidate(){if(failInvalidate)throw new IllegalStateException();value=null;}
     }
-    static final class Gateway implements PdvBackendGateway {
+    static class Gateway implements PdvBackendGateway {
         final Local local; CurrentTerminal current; TerminalContext pairedContext; RuntimeException failure; MachineCredential pairedCredential;
         int pairs,reads; PairTerminalCommand command; CompletableFuture<CurrentTerminal> pending;
         Gateway(Local local){this.local=local;}

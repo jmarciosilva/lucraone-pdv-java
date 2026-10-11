@@ -1,6 +1,7 @@
 package br.com.lucraone.pdv.infrastructure.auth;
 
 import br.com.lucraone.pdv.application.auth.CredentialRotationService;
+import br.com.lucraone.pdv.application.auth.CredentialRecoveryService;
 import br.com.lucraone.pdv.application.auth.TerminalAuthenticationService;
 import br.com.lucraone.pdv.application.operator.OperatorSessionService;
 import br.com.lucraone.pdv.domain.terminal.Installation;
@@ -32,14 +33,19 @@ public final class TerminalRuntimeFactory {
         var secretStore = new LazySecretStore(SecretStoreFactory::current);
         var credentials = new SecretStoreMachineCredentialRepository(secretStore);
         var candidateCredentials = new SecretStoreCandidateMachineCredentialRepository(secretStore);
+        var recoveryProofs = new SecretStoreCredentialRecoveryRepository(secretStore);
         var rotations = new JdbcCredentialRotationRepository(transactions);
         String backendIdentity = baseUrl.map(uri -> PdvApiBaseUrl.of(uri).resolve("/").toString()).orElse("");
+        var authentication = new TerminalAuthenticationService(terminals, credentials,
+                new JdbcTerminalValidationRepository(transactions), gateway.map(value -> value), backendIdentity,
+                clock, worker);
         Optional<OperatorSessionService> operatorService = gateway.map(
-                gw -> new OperatorSessionService(gw, clock, worker));
+                gw -> new OperatorSessionService(gw, clock, worker, authentication::loadStoredCredential));
         Optional<CredentialRotationService> rotationService = gateway.map(
                 gw -> new CredentialRotationService(credentials, candidateCredentials, rotations, gw, clock));
-        return new TerminalRuntime(new TerminalAuthenticationService(terminals, credentials,
-                new JdbcTerminalValidationRepository(transactions), gateway.map(value -> value), backendIdentity,
-                clock, worker), gateway.isPresent(), gateway, operatorService, rotationService);
+        Optional<CredentialRecoveryService> recoveryService = gateway.map(
+                gw -> new CredentialRecoveryService(credentials, candidateCredentials, recoveryProofs, gw,
+                        authentication, clock, worker));
+        return new TerminalRuntime(authentication, gateway.isPresent(), gateway, operatorService, rotationService, recoveryService);
     }
 }

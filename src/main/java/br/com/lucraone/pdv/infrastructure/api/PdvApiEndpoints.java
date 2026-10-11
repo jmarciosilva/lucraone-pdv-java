@@ -17,8 +17,9 @@ final class PdvApiEndpoints {
     static final String OPERATOR_SESSIONS = PREFIX + "/operator-sessions";
     static final String OPERATOR_SESSION = PREFIX + "/operator-session";
     static final String OPERATOR_SESSION_REVALIDATE = PREFIX + "/operator-session/revalidate";
-    static final String CREDENTIAL_ROTATIONS = PREFIX + "/credential-rotations";
-    static final String CREDENTIAL_CONFIRM = PREFIX + "/credential-rotations/%s/confirm";
+    static final String CREDENTIAL_ROTATIONS = PREFIX + "/terminal/credential/rotations";
+    static final String CREDENTIAL_CONFIRM = PREFIX + "/terminal/credential/confirm";
+    static final String CREDENTIAL_RECOVER = PREFIX + "/terminal/credential/recover";
 
     private PdvApiEndpoints() {
     }

@@ -1,5 +1,6 @@
 package br.com.lucraone.pdv.infrastructure.auth;
 
+import br.com.lucraone.pdv.application.auth.CredentialRotationService;
 import br.com.lucraone.pdv.application.auth.TerminalAuthenticationService;
 import br.com.lucraone.pdv.application.operator.OperatorSessionService;
 import br.com.lucraone.pdv.domain.terminal.Installation;
@@ -28,12 +29,17 @@ public final class TerminalRuntimeFactory {
         var bootstrap = new PropertiesBootstrapConfigurationSource(directory.bootstrapConfigurationFile()).load();
         var baseUrl = bootstrap.flatMap(configuration -> configuration.apiBaseUrl());
         var gateway = baseUrl.map(HttpPdvBackendGateway::new);
-        var credentials = new SecretStoreMachineCredentialRepository(new LazySecretStore(SecretStoreFactory::current));
+        var secretStore = new LazySecretStore(SecretStoreFactory::current);
+        var credentials = new SecretStoreMachineCredentialRepository(secretStore);
+        var candidateCredentials = new SecretStoreCandidateMachineCredentialRepository(secretStore);
+        var rotations = new JdbcCredentialRotationRepository(transactions);
         String backendIdentity = baseUrl.map(uri -> PdvApiBaseUrl.of(uri).resolve("/").toString()).orElse("");
         Optional<OperatorSessionService> operatorService = gateway.map(
                 gw -> new OperatorSessionService(gw, clock, worker));
+        Optional<CredentialRotationService> rotationService = gateway.map(
+                gw -> new CredentialRotationService(credentials, candidateCredentials, rotations, gw, clock));
         return new TerminalRuntime(new TerminalAuthenticationService(terminals, credentials,
                 new JdbcTerminalValidationRepository(transactions), gateway.map(value -> value), backendIdentity,
-                clock, worker), gateway.isPresent(), gateway, operatorService);
+                clock, worker), gateway.isPresent(), gateway, operatorService, rotationService);
     }
 }

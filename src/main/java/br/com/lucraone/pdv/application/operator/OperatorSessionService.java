@@ -14,21 +14,38 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /**
  * In-memory operator session manager. No password is ever stored. The credential is kept in a
  * volatile field and cleared on logout or session invalidation. Runs every operation on the
  * injected worker executor; never blocks the JavaFX application thread.
+ *
+ * <p>Periodic revalidation keeps the 240-minute sliding window alive. The scheduler fires every
+ * {@value #REVALIDATION_INTERVAL_MINUTES} minutes on a daemon thread; it is cancelled on logout
+ * or session invalidation. Close this service to shut down the scheduler.
  */
-public final class OperatorSessionService {
+public final class OperatorSessionService implements AutoCloseable {
+
+    private static final long REVALIDATION_INTERVAL_MINUTES = 30;
 
     private final PdvBackendGateway gateway;
     private final Clock clock;
     private final Executor executor;
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "operator-session-revalidator");
+        t.setDaemon(true);
+        return t;
+    });
 
     private volatile OperatorCredential activeCredential;
     private volatile OperatorSessionData activeSession;
+    private volatile MachineCredential loginMachineCredential;
+    private volatile ScheduledFuture<?> revalidationTask;
 
     public OperatorSessionService(PdvBackendGateway gateway, Clock clock, Executor executor) {
         this.gateway = Objects.requireNonNull(gateway);
@@ -52,6 +69,8 @@ public final class OperatorSessionService {
             }
             activeCredential = credential;
             activeSession = session;
+            loginMachineCredential = machineCredential;
+            scheduleRevalidation(machineCredential);
             return new OperatorAuthSnapshot(OperatorAuthState.AUTHENTICATED, Optional.of(session),
                     Optional.of(result.requestId()));
         });
@@ -108,9 +127,30 @@ public final class OperatorSessionService {
         return new OperatorAuthSnapshot(OperatorAuthState.AUTHENTICATED, Optional.of(session), Optional.empty());
     }
 
+    @Override
+    public void close() {
+        clearSession();
+        scheduler.shutdownNow();
+    }
+
     private void clearSession() {
         activeCredential = null;
         activeSession = null;
+        loginMachineCredential = null;
+        cancelRevalidation();
+    }
+
+    private void scheduleRevalidation(MachineCredential machineCredential) {
+        cancelRevalidation();
+        revalidationTask = scheduler.scheduleAtFixedRate(
+                () -> revalidate(machineCredential).join(),
+                REVALIDATION_INTERVAL_MINUTES, REVALIDATION_INTERVAL_MINUTES, TimeUnit.MINUTES);
+    }
+
+    private void cancelRevalidation() {
+        ScheduledFuture<?> task = revalidationTask;
+        revalidationTask = null;
+        if (task != null) task.cancel(false);
     }
 
     private CompletableFuture<OperatorAuthSnapshot> execute(Supplier<OperatorAuthSnapshot> work) {

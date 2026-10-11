@@ -6,7 +6,9 @@ import br.com.lucraone.pdv.application.api.MachineCredential;
 import br.com.lucraone.pdv.application.api.PdvApiException;
 import br.com.lucraone.pdv.application.api.PdvBackendGateway;
 import br.com.lucraone.pdv.application.api.PdvFailureKind;
+import java.security.SecureRandom;
 import java.time.Clock;
+import java.util.HexFormat;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -62,7 +64,7 @@ public final class CredentialRotationService {
         CredentialRotationResult rotationResult;
         try {
             rotationResult = gateway.prepareRotation(currentCredential,
-                    new CredentialRotationCommand(operationId, operationId)).join();
+                    new CredentialRotationCommand(operationId, generateDeliverySecret())).join();
         } catch (RuntimeException error) {
             Throwable cause = error instanceof CompletionException ? error.getCause() : error;
             String requestId = cause instanceof PdvApiException api
@@ -114,5 +116,11 @@ public final class CredentialRotationService {
         // Best-effort cleanup.
         try { candidateCredentials.delete(); } catch (RuntimeException ignored) {}
         try { rotations.delete(); } catch (RuntimeException ignored) {}
+    }
+
+    private static String generateDeliverySecret() {
+        byte[] bytes = new byte[32];
+        new SecureRandom().nextBytes(bytes);
+        return HexFormat.of().formatHex(bytes);
     }
 }

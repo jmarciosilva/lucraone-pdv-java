@@ -103,6 +103,22 @@ Esta operação é local, não logout de operador nem revogação remota do term
 - macOS: fail-secure testado unitariamente; Keychain não implementado nem validado em host macOS.
 - Banco operacional de desenvolvimento permanece preservado fora do repositório. Não há tabela de operador/senha/token nem venda/sync.
 
+## Auditoria pré-pareamento — 2026-10-11
+
+`./mvnw test` passou com 304 testes (3 novos em `CredentialRotationServiceTest`), 0 FAIL; BUILD SUCCESS.
+
+**Achados e correções aplicadas:**
+
+1. **deliverySecret bug corrigido.** `CredentialRotationService.generateDeliverySecret()` agora gera 32 bytes CSPRNG via `SecureRandom` codificados como 64 hex minúsculos (`HexFormat.of().formatHex`). Antes, o campo era incorretamente preenchido com o UUID do `operationId`.
+
+2. **Rotação após pairing: não acontece (correto).** O pareamento já emite as abilities `pdv:terminal:read`, `pdv:credential:renew`, `pdv:credential:confirm` e `pdv:operator-session`. O `CredentialRotationService.rotate()` não é chamado automaticamente após o pairing. A rotação fica disponível como caminho de renovação explícita.
+
+3. **Heartbeat `POST /api/v1/pdv/terminal/heartbeat`: não existe no backend.** A manutenção da janela deslizante de 240 minutos é feita via `POST /api/v1/pdv/operator-session/revalidate`. O `OperatorSessionService` agora agenda revalidação periódica a cada 30 minutos (daemon `ScheduledExecutorService`) após login bem-sucedido, cancelada no logout ou invalidação de sessão. A interface `AutoCloseable` permite encerramento limpo do scheduler.
+
+4. **`CredentialRotationService` conectado ao runtime.** `TerminalRuntimeFactory` agora instancia `CredentialRotationService` (com `SecretStoreCandidateMachineCredentialRepository`) e o expõe via `TerminalRuntime.rotation()`.
+
+5. **`TerminalRuntime.close()`** agora fecha `OperatorSessionService` antes de fechar o gateway, encerrando o scheduler de revalidação.
+
 ## Conclusão da Fase 5 — 2026-10-11
 
 `./mvnw test` e `./mvnw clean package` passaram com 301 testes; `git diff --check` passou. V4 migration (`credential_rotation`) aplicada. Bootstrap `~/.config/LucraOne/PDV/bootstrap.properties` criado com `api.base-url=https://lucraone.jmfsystem.tech`. A UI exibe três telas: setup/pairing → login do operador → caixa. Credencial de operador mantida apenas em memória; senha nunca persistida. Rotação de credencial implementada com crash recovery via SQLite.

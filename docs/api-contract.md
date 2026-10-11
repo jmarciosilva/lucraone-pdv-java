@@ -187,7 +187,22 @@ A machine credential devolvida pelo pareamento é secreta. A Fase 4 entregou tra
 
 O token não é gravado em SQLite, properties ou arquivo plaintext. A V3 contém apenas evidência não secreta de validação; o envelope versionado com token e expiração fica dentro do SecretStore. Os `toString()` de credenciais e comandos são redigidos. Sem store disponível não há fallback. macOS continua bloqueado até Keychain real.
 
-**Operator authentication backend contract unavailable.** Não há contrato aprovado de autenticação, sessão ou logout de operador. O forget de terminal é exclusivamente local, sem revogação remota. Políticas e limitações em [Autenticação e sessão](authentication-session.md).
+### Sessões de operador
+
+O login `POST /operator-sessions` retorna `data.session`, `data.operator`, `data.context`,
+`data.capabilities`, `data.policy`, `data.offline` e `data.credential`. O backend pode responder
+`201` ao criar sessão ou `200` ao recuperar sessão existente do mesmo operador após autenticação
+válida. O objeto `operator` fica ao lado de `session`; `email` é opcional e `username` identifica
+o login operacional. `session.expires_at` pode ser `null` quando não há teto absoluto.
+
+`GET /operator-session` e `POST /operator-session/revalidate` retornam os dados de sessão sem
+reentregar `credential`. Ambos mantêm o operador no nível `data.operator`. `DELETE /operator-session`
+encerra a sessão apresentada no header `X-PDV-Operator-Session`.
+
+`operator_authentication_failed` representa credenciais incorretas, `operator_session_invalid`
+representa token inválido e `operator_session_conflict` (HTTP 409) representa conflito de sessão
+operacional no terminal. Uma sessão existente do mesmo operador recuperada pelo login não é conflito.
+O header com a credencial operacional nunca é registrado em log.
 
 ## Assincronismo
 

@@ -113,7 +113,7 @@ final class PdvResponseMapper {
     OperatorLoginResult operatorLogin(String body, String requestId) {
         OperatorSessionResponseDto dto = read(body, OperatorSessionResponseDto.class, requestId);
         OperatorSessionResponseDto.Data data = required(dto.data(), requestId);
-        OperatorSessionData sessionData = sessionData(required(data.session(), requestId), requestId);
+        OperatorSessionData sessionData = sessionData(required(data.session(), requestId), required(data.operator(), requestId), requestId);
         OperatorCredential credential = operatorCredential(required(data.credential(), requestId), requestId);
         return new OperatorLoginResult(sessionData, credential, requestId);
     }
@@ -121,13 +121,13 @@ final class PdvResponseMapper {
     OperatorSessionData operatorSession(String body, String requestId) {
         OperatorSessionGetResponseDto dto = read(body, OperatorSessionGetResponseDto.class, requestId);
         OperatorSessionGetResponseDto.Data data = required(dto.data(), requestId);
-        return sessionData(required(data.session(), requestId), requestId);
+        return sessionData(required(data.session(), requestId), required(data.operator(), requestId), requestId);
     }
 
     OperatorSessionData revalidatedOperatorSession(String body, String requestId) {
         OperatorSessionResponseDto dto = read(body, OperatorSessionResponseDto.class, requestId);
         OperatorSessionResponseDto.Data data = required(dto.data(), requestId);
-        return sessionData(required(data.session(), requestId), requestId);
+        return sessionData(required(data.session(), requestId), required(data.operator(), requestId), requestId);
     }
 
     CredentialRotationResult credentialRotation(String body, String requestId) {
@@ -152,15 +152,15 @@ final class PdvResponseMapper {
         return instant(data.confirmedAt(), requestId);
     }
 
-    private OperatorSessionData sessionData(OperatorSessionDto session, String requestId) {
-        OperatorDataDto op = required(session.operator(), requestId);
+    private OperatorSessionData sessionData(OperatorSessionDto session, OperatorDataDto op, String requestId) {
         return new OperatorSessionData(
                 required(session.id(), requestId),
                 required(session.status(), requestId),
-                instant(session.expiresAt(), requestId),
+                optionalInstant(session.expiresAt(), requestId),
                 required(op.id(), requestId),
                 required(op.name(), requestId),
-                required(op.email(), requestId));
+                required(op.username(), requestId),
+                op.email());
     }
 
     private OperatorCredential operatorCredential(OperatorSessionCredentialDto dto, String requestId) {
@@ -246,6 +246,10 @@ final class PdvResponseMapper {
                 throw invalidResponse(requestId);
             }
         }
+    }
+
+    private static Instant optionalInstant(String raw, String requestId) {
+        return raw == null ? null : instant(raw, requestId);
     }
 
     private static PdvApiException invalidResponse(String requestId) {

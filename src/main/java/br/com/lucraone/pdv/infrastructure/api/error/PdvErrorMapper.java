@@ -172,7 +172,7 @@ public final class PdvErrorMapper {
         return switch (status) {
             case 401 -> PdvFailureKind.UNAUTHENTICATED;
             case 403 -> PdvFailureKind.FORBIDDEN;
-            case 409 -> PdvFailureKind.ROTATION_CONFLICT;
+            case 409 -> PdvFailureKind.OPERATOR_SESSION_CONFLICT;
             // Without a code, 422 cannot be told apart from a plain validation rejection.
             case 422 -> PdvFailureKind.VALIDATION;
             case 429 -> PdvFailureKind.RATE_LIMITED;

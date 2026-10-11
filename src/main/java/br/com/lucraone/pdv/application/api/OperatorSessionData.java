@@ -8,6 +8,7 @@ public record OperatorSessionData(
         Instant expiresAt,
         String operatorId,
         String operatorName,
+        String operatorUsername,
         String operatorEmail
 ) {
 }

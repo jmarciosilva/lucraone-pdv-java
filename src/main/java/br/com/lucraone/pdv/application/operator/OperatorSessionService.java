@@ -179,6 +179,17 @@ public final class OperatorSessionService implements AutoCloseable {
                 return new OperatorAuthSnapshot(OperatorAuthState.SESSION_CONFLICT, Optional.empty(),
                         api.failure().requestId());
             }
+            OperatorAuthState state = switch (kind) {
+                case NETWORK_UNAVAILABLE -> OperatorAuthState.NETWORK_UNAVAILABLE;
+                case TIMEOUT -> OperatorAuthState.TIMEOUT;
+                case INVALID_RESPONSE -> OperatorAuthState.INVALID_RESPONSE;
+                case UNAUTHENTICATED, FORBIDDEN -> OperatorAuthState.ACCESS_DENIED;
+                case RATE_LIMITED -> OperatorAuthState.RATE_LIMITED;
+                case SERVER_ERROR -> OperatorAuthState.BACKEND_ERROR;
+                case PROTOCOL_ERROR, VALIDATION, PAIRING_FAILED, ROTATION_CONFLICT -> OperatorAuthState.PROTOCOL_ERROR;
+                default -> OperatorAuthState.UNAVAILABLE;
+            };
+            return new OperatorAuthSnapshot(state, Optional.empty(), api.failure().requestId());
         }
         return OperatorAuthSnapshot.of(OperatorAuthState.UNAVAILABLE);
     }

@@ -17,6 +17,14 @@ public enum OperatorAuthState {
     /** Wrong username or password. */
     LOGIN_FAILED,
 
-    /** The backend is not reachable and no cached session is available. */
+    /** The backend could not be reached. */
+    NETWORK_UNAVAILABLE,
+    TIMEOUT,
+    INVALID_RESPONSE,
+    ACCESS_DENIED,
+    RATE_LIMITED,
+    BACKEND_ERROR,
+    PROTOCOL_ERROR,
+    /** Compatibility fallback for unexpected local failures. */
     UNAVAILABLE
 }

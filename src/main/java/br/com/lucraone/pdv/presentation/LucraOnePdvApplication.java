@@ -247,9 +247,16 @@ public class LucraOnePdvApplication extends Application {
                 loginButton.setDisable(false);
             }
             case SESSION_CONFLICT -> {
-                showLoginError("Já existe uma sessão ativa para este operador.");
+                showLoginError("Este terminal possui uma sessão operacional conflitante. Encerre a sessão atual ou contate o suporte.");
                 loginButton.setDisable(false);
             }
+            case INVALID_RESPONSE -> { showLoginError("O servidor respondeu em formato incompatível. Contate o suporte."); loginButton.setDisable(false); }
+            case NETWORK_UNAVAILABLE -> { showLoginError("Não foi possível alcançar o servidor. Verifique a conexão."); loginButton.setDisable(false); }
+            case TIMEOUT -> { showLoginError("O servidor demorou para responder. Tente novamente."); loginButton.setDisable(false); }
+            case ACCESS_DENIED -> { showLoginError("A sessão do terminal foi recusada. Contate o suporte."); loginButton.setDisable(false); }
+            case RATE_LIMITED -> { showLoginError("Muitas tentativas. Aguarde antes de tentar novamente."); loginButton.setDisable(false); }
+            case BACKEND_ERROR -> { showLoginError("O servidor apresentou um erro. Tente novamente mais tarde."); loginButton.setDisable(false); }
+            case PROTOCOL_ERROR -> { showLoginError("O servidor recusou a solicitação. Verifique os dados e contate o suporte."); loginButton.setDisable(false); }
             default -> {
                 showLoginError("Não foi possível autenticar. Verifique a conexão.");
                 loginButton.setDisable(false);

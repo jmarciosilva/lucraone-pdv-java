@@ -68,8 +68,56 @@ class PdvOperatorContractTest {
                 assertNotNull(result.sessionData());
                 assertEquals("ses_1", result.sessionData().id());
                 assertEquals("João Caixa", result.sessionData().operatorName());
+                assertEquals("joao.caixa", result.sessionData().operatorUsername());
+                assertEquals("joao@example.com", result.sessionData().operatorEmail());
                 assertNotNull(result.credential());
                 assertEquals("PdvOperatorSession", result.credential().tokenType());
+            }
+        }
+    }
+
+    @Test
+    void loginCanRecoverSessionWithHttp200AndOptionalEmail() {
+        String body = PdvApiFixtures.OPERATOR_LOGIN_SUCCESS.formatted(FAKE_SESSION)
+                .replace(",\"email\":\"joao@example.com\"", "")
+                .replace("\"session\":{\"id\":\"ses_1\",\"status\":\"active\",\"expires_at\":\"2026-12-31T23:59:59Z\"}",
+                        "\"session\":{\"id\":\"ses_1\",\"status\":\"active\",\"expires_at\":null}");
+        try (PdvTestBackend backend = PdvTestBackend.start()) {
+            backend.enqueue(StubResponse.json(200, body));
+            try (HttpPdvBackendGateway gateway = new HttpPdvBackendGateway(backend.baseUrl(), settings())) {
+                var result = gateway.loginOperator(credential(), new OperatorLoginCommand("joao.caixa", "secret")).join();
+                assertEquals("joao.caixa", result.sessionData().operatorUsername());
+                assertEquals(null, result.sessionData().operatorEmail());
+                assertEquals(null, result.sessionData().expiresAt());
+                assertEquals(FAKE_SESSION, result.credential().accessToken());
+            }
+        }
+    }
+
+    @Test
+    void getAndRevalidateDoNotRequireCredentialRedelivery() {
+        try (PdvTestBackend backend = PdvTestBackend.start()) {
+            backend.enqueue(StubResponse.json(200, PdvApiFixtures.OPERATOR_SESSION_GET_SUCCESS));
+            backend.enqueue(StubResponse.json(200, PdvApiFixtures.OPERATOR_REVALIDATE_SUCCESS));
+            try (HttpPdvBackendGateway gateway = new HttpPdvBackendGateway(backend.baseUrl(), settings())) {
+                assertEquals("joao.caixa", gateway.getOperatorSession(credential(), FAKE_SESSION).join().operatorUsername());
+                assertEquals("joao.caixa", gateway.revalidateOperatorSession(credential(), FAKE_SESSION).join().operatorUsername());
+            }
+        }
+    }
+
+    @Test
+    void malformedSessionTimestampAndMissingOperatorAreRejected() {
+        String badTimestamp = PdvApiFixtures.OPERATOR_SESSION_GET_SUCCESS.replace(
+                "\"expires_at\":null", "\"expires_at\":\"not-a-timestamp\"");
+        String missingOperator = PdvApiFixtures.OPERATOR_SESSION_GET_SUCCESS.replace(
+                "\"operator\":{\"id\":\"op_1\",\"name\":\"João Caixa\",\"username\":\"joao.caixa\"},", "");
+        try (PdvTestBackend backend = PdvTestBackend.start()) {
+            backend.enqueue(StubResponse.json(200, badTimestamp));
+            backend.enqueue(StubResponse.json(200, missingOperator));
+            try (HttpPdvBackendGateway gateway = new HttpPdvBackendGateway(backend.baseUrl(), settings())) {
+                assertEquals(PdvFailureKind.INVALID_RESPONSE, failureOf(gateway.getOperatorSession(credential(), FAKE_SESSION)).kind());
+                assertEquals(PdvFailureKind.INVALID_RESPONSE, failureOf(gateway.getOperatorSession(credential(), FAKE_SESSION)).kind());
             }
         }
     }

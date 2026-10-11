@@ -57,16 +57,23 @@ final class PdvApiFixtures {
 
     static final String OPERATOR_LOGIN_SUCCESS = """
             {"data":{
-              "session":{"id":"ses_1","status":"active","expires_at":"2026-12-31T23:59:59Z",
-                "operator":{"id":"op_1","name":"João Caixa","email":"joao@example.com"}},
+              "session":{"id":"ses_1","status":"active","expires_at":"2026-12-31T23:59:59Z"},
+              "operator":{"id":"op_1","name":"João Caixa","username":"joao.caixa","email":"joao@example.com"},
+              "context":{},"capabilities":{},"policy":{},"offline":{},
               "credential":{"token_type":"PdvOperatorSession","access_token":"%s","expires_at":"2026-12-31T23:59:59Z"}
             }}""";
 
     static final String OPERATOR_SESSION_GET_SUCCESS = """
             {"data":{
-              "session":{"id":"ses_1","status":"active","expires_at":"2026-12-31T23:59:59Z",
-                "operator":{"id":"op_1","name":"João Caixa","email":"joao@example.com"}}
+              "session":{"id":"ses_1","status":"active","expires_at":null},
+              "operator":{"id":"op_1","name":"João Caixa","username":"joao.caixa"},
+              "context":{},"capabilities":{},"policy":{},"offline":{}
             }}""";
+
+    static final String OPERATOR_REVALIDATE_SUCCESS = """
+            {"data":{"session":{"id":"ses_1","status":"active","expires_at":null},
+              "operator":{"id":"op_1","name":"João Caixa","username":"joao.caixa"},
+              "context":{},"capabilities":{},"policy":{},"offline":{}}}""";
 
     static final String CREDENTIAL_ROTATION_SUCCESS = """
             {"data":{

@@ -5,7 +5,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public record OperatorSessionDto(
         @JsonProperty("id") String id,
         @JsonProperty("status") String status,
-        @JsonProperty("expires_at") String expiresAt,
-        @JsonProperty("operator") OperatorDataDto operator
+        @JsonProperty("expires_at") String expiresAt
 ) {
 }

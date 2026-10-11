@@ -1,14 +1,23 @@
 package br.com.lucraone.pdv.infrastructure.api;
 
 import br.com.lucraone.pdv.application.api.BackendHealth;
+import br.com.lucraone.pdv.application.api.CredentialRotationCommand;
+import br.com.lucraone.pdv.application.api.CredentialRotationResult;
 import br.com.lucraone.pdv.application.api.CurrentTerminal;
 import br.com.lucraone.pdv.application.api.MachineCredential;
+import br.com.lucraone.pdv.application.api.OperatorListResult;
+import br.com.lucraone.pdv.application.api.OperatorLoginCommand;
+import br.com.lucraone.pdv.application.api.OperatorLoginResult;
+import br.com.lucraone.pdv.application.api.OperatorSessionData;
 import br.com.lucraone.pdv.application.api.PairTerminalCommand;
 import br.com.lucraone.pdv.application.api.PairedTerminal;
 import br.com.lucraone.pdv.application.api.PdvApiException;
 import br.com.lucraone.pdv.application.api.PdvApiFailure;
 import br.com.lucraone.pdv.application.api.PdvBackendGateway;
 import br.com.lucraone.pdv.application.api.PdvFailureKind;
+import br.com.lucraone.pdv.infrastructure.api.dto.CredentialConfirmRequestDto;
+import br.com.lucraone.pdv.infrastructure.api.dto.CredentialRotationRequestDto;
+import br.com.lucraone.pdv.infrastructure.api.dto.OperatorLoginRequestDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.PairTerminalRequestDto;
 import br.com.lucraone.pdv.infrastructure.api.error.PdvErrorMapper;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -20,6 +29,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
@@ -47,6 +57,7 @@ public final class HttpPdvBackendGateway implements PdvBackendGateway, AutoClose
 
     private static final String REQUEST_ID_HEADER = "X-Request-ID";
     private static final String JSON_MEDIA_TYPE = "application/json";
+    private static final String OPERATOR_SESSION_HEADER = "X-PDV-Operator-Session";
 
     /** Pairing is single use: one attempt only, because the backend may have succeeded anyway. */
     private static final int SINGLE_ATTEMPT = 1;
@@ -154,6 +165,159 @@ public final class HttpPdvBackendGateway implements PdvBackendGateway, AutoClose
                         .build(),
                 responseMapper::currentTerminal,
                 ONE_RETRY
+        );
+    }
+
+    @Override
+    public CompletableFuture<OperatorListResult> listOperators(MachineCredential credential) {
+        Objects.requireNonNull(credential, "credential must not be null");
+        return dispatch(
+                "list_operators",
+                "GET",
+                PdvApiEndpoints.OPERATORS,
+                requestId -> baseRequest(PdvApiEndpoints.OPERATORS, requestId)
+                        .header("Authorization", credential.tokenType() + " " + credential.accessToken())
+                        .GET()
+                        .build(),
+                responseMapper::operatorList,
+                ONE_RETRY
+        );
+    }
+
+    @Override
+    public CompletableFuture<OperatorLoginResult> loginOperator(MachineCredential credential,
+            OperatorLoginCommand command) {
+        Objects.requireNonNull(credential, "credential must not be null");
+        Objects.requireNonNull(command, "command must not be null");
+        String payload;
+        try {
+            payload = objectMapper.writeValueAsString(
+                    new OperatorLoginRequestDto(command.username(), command.password()));
+        } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException exception) {
+            return CompletableFuture.failedFuture(
+                    new PdvApiException(PdvApiFailure.of(PdvFailureKind.PROTOCOL_ERROR, null)));
+        }
+        return dispatch(
+                "login_operator",
+                "POST",
+                PdvApiEndpoints.OPERATOR_SESSIONS,
+                requestId -> baseRequest(PdvApiEndpoints.OPERATOR_SESSIONS, requestId)
+                        .header("Authorization", credential.tokenType() + " " + credential.accessToken())
+                        .header("Content-Type", JSON_MEDIA_TYPE)
+                        .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
+                        .build(),
+                responseMapper::operatorLogin,
+                SINGLE_ATTEMPT
+        );
+    }
+
+    @Override
+    public CompletableFuture<OperatorSessionData> getOperatorSession(MachineCredential credential,
+            String sessionToken) {
+        Objects.requireNonNull(credential, "credential must not be null");
+        Objects.requireNonNull(sessionToken, "sessionToken must not be null");
+        return dispatch(
+                "get_operator_session",
+                "GET",
+                PdvApiEndpoints.OPERATOR_SESSION,
+                requestId -> baseRequest(PdvApiEndpoints.OPERATOR_SESSION, requestId)
+                        .header("Authorization", credential.tokenType() + " " + credential.accessToken())
+                        .header(OPERATOR_SESSION_HEADER, sessionToken)
+                        .GET()
+                        .build(),
+                responseMapper::operatorSession,
+                ONE_RETRY
+        );
+    }
+
+    @Override
+    public CompletableFuture<OperatorSessionData> revalidateOperatorSession(MachineCredential credential,
+            String sessionToken) {
+        Objects.requireNonNull(credential, "credential must not be null");
+        Objects.requireNonNull(sessionToken, "sessionToken must not be null");
+        return dispatch(
+                "revalidate_operator_session",
+                "POST",
+                PdvApiEndpoints.OPERATOR_SESSION_REVALIDATE,
+                requestId -> baseRequest(PdvApiEndpoints.OPERATOR_SESSION_REVALIDATE, requestId)
+                        .header("Authorization", credential.tokenType() + " " + credential.accessToken())
+                        .header(OPERATOR_SESSION_HEADER, sessionToken)
+                        .header("Content-Type", JSON_MEDIA_TYPE)
+                        .POST(HttpRequest.BodyPublishers.noBody())
+                        .build(),
+                responseMapper::revalidatedOperatorSession,
+                SINGLE_ATTEMPT
+        );
+    }
+
+    @Override
+    public CompletableFuture<Void> logoutOperator(MachineCredential credential, String sessionToken) {
+        Objects.requireNonNull(credential, "credential must not be null");
+        Objects.requireNonNull(sessionToken, "sessionToken must not be null");
+        return dispatch(
+                "logout_operator",
+                "DELETE",
+                PdvApiEndpoints.OPERATOR_SESSION,
+                requestId -> baseRequest(PdvApiEndpoints.OPERATOR_SESSION, requestId)
+                        .header("Authorization", credential.tokenType() + " " + credential.accessToken())
+                        .header(OPERATOR_SESSION_HEADER, sessionToken)
+                        .DELETE()
+                        .build(),
+                (body, reqId) -> null,
+                SINGLE_ATTEMPT
+        );
+    }
+
+    @Override
+    public CompletableFuture<CredentialRotationResult> prepareRotation(MachineCredential credential,
+            CredentialRotationCommand command) {
+        Objects.requireNonNull(credential, "credential must not be null");
+        Objects.requireNonNull(command, "command must not be null");
+        String payload;
+        try {
+            payload = objectMapper.writeValueAsString(
+                    new CredentialRotationRequestDto(command.operationId(), command.deliverySecret()));
+        } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException exception) {
+            return CompletableFuture.failedFuture(
+                    new PdvApiException(PdvApiFailure.of(PdvFailureKind.PROTOCOL_ERROR, null)));
+        }
+        return dispatch(
+                "prepare_rotation",
+                "POST",
+                PdvApiEndpoints.CREDENTIAL_ROTATIONS,
+                requestId -> baseRequest(PdvApiEndpoints.CREDENTIAL_ROTATIONS, requestId)
+                        .header("Authorization", credential.tokenType() + " " + credential.accessToken())
+                        .header("Content-Type", JSON_MEDIA_TYPE)
+                        .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
+                        .build(),
+                responseMapper::credentialRotation,
+                SINGLE_ATTEMPT
+        );
+    }
+
+    @Override
+    public CompletableFuture<Instant> confirmRotation(MachineCredential candidateCredential, String operationId) {
+        Objects.requireNonNull(candidateCredential, "candidateCredential must not be null");
+        Objects.requireNonNull(operationId, "operationId must not be null");
+        String confirmPath = PdvApiEndpoints.CREDENTIAL_CONFIRM.formatted(operationId);
+        String payload;
+        try {
+            payload = objectMapper.writeValueAsString(new CredentialConfirmRequestDto(operationId));
+        } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException exception) {
+            return CompletableFuture.failedFuture(
+                    new PdvApiException(PdvApiFailure.of(PdvFailureKind.PROTOCOL_ERROR, null)));
+        }
+        return dispatch(
+                "confirm_rotation",
+                "POST",
+                confirmPath,
+                requestId -> baseRequest(confirmPath, requestId)
+                        .header("Authorization", candidateCredential.tokenType() + " " + candidateCredential.accessToken())
+                        .header("Content-Type", JSON_MEDIA_TYPE)
+                        .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
+                        .build(),
+                responseMapper::credentialConfirm,
+                SINGLE_ATTEMPT
         );
     }
 

@@ -1,8 +1,14 @@
 package br.com.lucraone.pdv.infrastructure.api;
 
 import br.com.lucraone.pdv.application.api.BackendHealth;
+import br.com.lucraone.pdv.application.api.CredentialRotationResult;
 import br.com.lucraone.pdv.application.api.CurrentTerminal;
 import br.com.lucraone.pdv.application.api.MachineCredential;
+import br.com.lucraone.pdv.application.api.OperatorCredential;
+import br.com.lucraone.pdv.application.api.OperatorInfo;
+import br.com.lucraone.pdv.application.api.OperatorListResult;
+import br.com.lucraone.pdv.application.api.OperatorLoginResult;
+import br.com.lucraone.pdv.application.api.OperatorSessionData;
 import br.com.lucraone.pdv.application.api.PairedTerminal;
 import br.com.lucraone.pdv.application.api.PdvApiException;
 import br.com.lucraone.pdv.application.api.PdvApiFailure;
@@ -10,9 +16,18 @@ import br.com.lucraone.pdv.application.api.PdvFailureKind;
 import br.com.lucraone.pdv.application.api.TerminalContext;
 import br.com.lucraone.pdv.infrastructure.api.dto.BranchDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.CompanyDto;
+import br.com.lucraone.pdv.infrastructure.api.dto.CredentialConfirmResponseDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.CredentialDto;
+import br.com.lucraone.pdv.infrastructure.api.dto.CredentialRotationResponseDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.CurrentTerminalResponseDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.HealthResponseDto;
+import br.com.lucraone.pdv.infrastructure.api.dto.OperatorDataDto;
+import br.com.lucraone.pdv.infrastructure.api.dto.OperatorDto;
+import br.com.lucraone.pdv.infrastructure.api.dto.OperatorSessionCredentialDto;
+import br.com.lucraone.pdv.infrastructure.api.dto.OperatorSessionDto;
+import br.com.lucraone.pdv.infrastructure.api.dto.OperatorSessionGetResponseDto;
+import br.com.lucraone.pdv.infrastructure.api.dto.OperatorSessionResponseDto;
+import br.com.lucraone.pdv.infrastructure.api.dto.OperatorsListResponseDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.PairTerminalResponseDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.TenantDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.TerminalDto;
@@ -21,7 +36,9 @@ import java.io.IOException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
+import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Turns transport DTOs into application models. A successful status carrying a body that cannot be
@@ -77,6 +94,80 @@ final class PdvResponseMapper {
                 instant(credential.expiresAt(), requestId),
                 requestId
         );
+    }
+
+    OperatorListResult operatorList(String body, String requestId) {
+        OperatorsListResponseDto dto = read(body, OperatorsListResponseDto.class, requestId);
+        OperatorsListResponseDto.Data data = required(dto.data(), requestId);
+        String branchId = required(data.branchId(), requestId);
+        List<OperatorDto> rawOperators = data.operators() != null ? data.operators() : List.of();
+        List<OperatorInfo> operators = rawOperators.stream()
+                .map(op -> new OperatorInfo(
+                        required(op.id(), requestId),
+                        required(op.displayName(), requestId),
+                        required(op.username(), requestId)))
+                .collect(Collectors.toUnmodifiableList());
+        return new OperatorListResult(branchId, operators, requestId);
+    }
+
+    OperatorLoginResult operatorLogin(String body, String requestId) {
+        OperatorSessionResponseDto dto = read(body, OperatorSessionResponseDto.class, requestId);
+        OperatorSessionResponseDto.Data data = required(dto.data(), requestId);
+        OperatorSessionData sessionData = sessionData(required(data.session(), requestId), requestId);
+        OperatorCredential credential = operatorCredential(required(data.credential(), requestId), requestId);
+        return new OperatorLoginResult(sessionData, credential, requestId);
+    }
+
+    OperatorSessionData operatorSession(String body, String requestId) {
+        OperatorSessionGetResponseDto dto = read(body, OperatorSessionGetResponseDto.class, requestId);
+        OperatorSessionGetResponseDto.Data data = required(dto.data(), requestId);
+        return sessionData(required(data.session(), requestId), requestId);
+    }
+
+    OperatorSessionData revalidatedOperatorSession(String body, String requestId) {
+        OperatorSessionResponseDto dto = read(body, OperatorSessionResponseDto.class, requestId);
+        OperatorSessionResponseDto.Data data = required(dto.data(), requestId);
+        return sessionData(required(data.session(), requestId), requestId);
+    }
+
+    CredentialRotationResult credentialRotation(String body, String requestId) {
+        CredentialRotationResponseDto dto = read(body, CredentialRotationResponseDto.class, requestId);
+        CredentialRotationResponseDto.Data data = required(dto.data(), requestId);
+        CredentialDto cred = required(data.credential(), requestId);
+        MachineCredential candidate = new MachineCredential(
+                required(cred.tokenType(), requestId),
+                required(cred.accessToken(), requestId),
+                instant(cred.expiresAt(), requestId));
+        return new CredentialRotationResult(
+                required(data.operationId(), requestId),
+                required(data.status(), requestId),
+                instant(data.rotationExpiresAt(), requestId),
+                candidate,
+                requestId);
+    }
+
+    Instant credentialConfirm(String body, String requestId) {
+        CredentialConfirmResponseDto dto = read(body, CredentialConfirmResponseDto.class, requestId);
+        CredentialConfirmResponseDto.Data data = required(dto.data(), requestId);
+        return instant(data.confirmedAt(), requestId);
+    }
+
+    private OperatorSessionData sessionData(OperatorSessionDto session, String requestId) {
+        OperatorDataDto op = required(session.operator(), requestId);
+        return new OperatorSessionData(
+                required(session.id(), requestId),
+                required(session.status(), requestId),
+                instant(session.expiresAt(), requestId),
+                required(op.id(), requestId),
+                required(op.name(), requestId),
+                required(op.email(), requestId));
+    }
+
+    private OperatorCredential operatorCredential(OperatorSessionCredentialDto dto, String requestId) {
+        return new OperatorCredential(
+                required(dto.tokenType(), requestId),
+                required(dto.accessToken(), requestId),
+                instant(dto.expiresAt(), requestId));
     }
 
     private TerminalContext context(

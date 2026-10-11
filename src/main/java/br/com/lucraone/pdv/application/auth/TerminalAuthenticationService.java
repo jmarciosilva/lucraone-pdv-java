@@ -66,6 +66,15 @@ public final class TerminalAuthenticationService {
         });
     }
 
+    /**
+     * Loads the stored machine credential synchronously on the caller's thread. Used by the UI to
+     * obtain the credential after authentication so it can be passed to operator login. Returns
+     * {@code null} when no credential is stored or the store is unavailable.
+     */
+    public MachineCredential loadStoredCredential() {
+        return credentials.load().map(stored -> stored.credential()).orElse(null);
+    }
+
     public CompletableFuture<TerminalAuthSnapshot> forget() {
         return execute(() -> {
             // Fail before deleting: the installation and provisioning references remain intact.

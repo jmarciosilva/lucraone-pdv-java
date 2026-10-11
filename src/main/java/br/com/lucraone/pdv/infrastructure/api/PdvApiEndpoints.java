@@ -13,6 +13,12 @@ final class PdvApiEndpoints {
     static final String HEALTH = PREFIX + "/health";
     static final String PAIR_TERMINAL = PREFIX + "/terminals/pair";
     static final String CURRENT_TERMINAL = PREFIX + "/terminal";
+    static final String OPERATORS = PREFIX + "/operators";
+    static final String OPERATOR_SESSIONS = PREFIX + "/operator-sessions";
+    static final String OPERATOR_SESSION = PREFIX + "/operator-session";
+    static final String OPERATOR_SESSION_REVALIDATE = PREFIX + "/operator-session/revalidate";
+    static final String CREDENTIAL_ROTATIONS = PREFIX + "/credential-rotations";
+    static final String CREDENTIAL_CONFIRM = PREFIX + "/credential-rotations/%s/confirm";
 
     private PdvApiEndpoints() {
     }

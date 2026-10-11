@@ -1,6 +1,7 @@
 package br.com.lucraone.pdv.infrastructure.auth;
 
 import br.com.lucraone.pdv.application.auth.TerminalAuthenticationService;
+import br.com.lucraone.pdv.application.operator.OperatorSessionService;
 import br.com.lucraone.pdv.domain.terminal.Installation;
 import br.com.lucraone.pdv.infrastructure.api.HttpPdvBackendGateway;
 import br.com.lucraone.pdv.infrastructure.api.PdvApiBaseUrl;
@@ -8,6 +9,7 @@ import br.com.lucraone.pdv.infrastructure.configuration.PropertiesBootstrapConfi
 import br.com.lucraone.pdv.infrastructure.persistence.*;
 import br.com.lucraone.pdv.infrastructure.security.*;
 import java.time.Clock;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 
@@ -28,8 +30,10 @@ public final class TerminalRuntimeFactory {
         var gateway = baseUrl.map(HttpPdvBackendGateway::new);
         var credentials = new SecretStoreMachineCredentialRepository(new LazySecretStore(SecretStoreFactory::current));
         String backendIdentity = baseUrl.map(uri -> PdvApiBaseUrl.of(uri).resolve("/").toString()).orElse("");
+        Optional<OperatorSessionService> operatorService = gateway.map(
+                gw -> new OperatorSessionService(gw, clock, worker));
         return new TerminalRuntime(new TerminalAuthenticationService(terminals, credentials,
                 new JdbcTerminalValidationRepository(transactions), gateway.map(value -> value), backendIdentity,
-                clock, worker), gateway.isPresent(), gateway);
+                clock, worker), gateway.isPresent(), gateway, operatorService);
     }
 }

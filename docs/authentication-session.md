@@ -1,28 +1,21 @@
 # Fase 5 — Autenticação e sessão operacional
 
-**Estado: EM ANDAMENTO / PARCIAL.** O lifecycle seguro da credencial de terminal foi implementado; operador e sessão operacional completa permanecem bloqueados. A Fase 4 continua concluída. A Fase 6 não foi iniciada.
+**Estado: CONCLUÍDA.** Lifecycle seguro da credencial de terminal, rotação de credencial e sessão de operador implementados. A Fase 4 continua concluída. A Fase 6 não foi iniciada.
 
-## Contrato disponível e autoridade
+## Contratos implementados — Fase 5
 
-Os únicos endpoints PDV aprovados são:
+- `GET /api/v1/pdv/health`
+- `POST /api/v1/pdv/terminals/pair`
+- `GET /api/v1/pdv/terminal`
+- `GET /api/v1/pdv/operators` — lista operadores elegíveis (requer Bearer)
+- `POST /api/v1/pdv/operator-sessions` — login do operador (sem retry; requer Bearer)
+- `GET /api/v1/pdv/operator-session` — consulta sessão (Bearer + X-PDV-Operator-Session)
+- `POST /api/v1/pdv/operator-session/revalidate` — revalida janela deslizante (sem retry)
+- `DELETE /api/v1/pdv/operator-session` — logout do operador (sem retry)
+- `POST /api/v1/pdv/credential-rotations` — prepara rotação (sem retry)
+- `POST /api/v1/pdv/credential-rotations/{id}/confirm` — confirma rotação (sem retry)
 
-- `GET /api/v1/pdv/health`;
-- `POST /api/v1/pdv/terminals/pair`;
-- `GET /api/v1/pdv/terminal`.
-
-**Operator authentication backend contract unavailable.** Não existe contrato documentado de login, sessão ou logout do operador. Não há senha persistida, usuário local paralelo, JWT inventado ou endpoint novo. A identidade autenticada do terminal não equivale a operador autenticado nem autorização comercial.
-
-O backend precisa aprovar, para concluir a Fase 5:
-
-1. Método e path oficiais de autenticação do operador, requisitos de transporte e vínculo com a machine credential, instalação, terminal e filial.
-2. Schema de request: identificação do operador e prova de autenticação aceita, validação, limites e campos obrigatórios. Nenhum password flow é presumido.
-3. Schema de resposta: identidade do operador, contexto autorizado, permissões necessárias, credencial de sessão, escopo, timestamps e expiração.
-4. Semântica de erros, incluindo 401/403, rate limiting e correlação, sem exposição de credenciais.
-5. Reautenticação e eventual renovação/refresh somente se aprovados, com regras de expiração/revogação.
-6. Método/path e semântica oficiais de logout/revogação da sessão, incluindo comportamento quando offline.
-7. Política explícita de sessão do operador offline, evidência exigida, duração e capacidades permitidas.
-
-Este documento registra a dependência; não define rotas, payloads ou campos fictícios nem modifica o backend Laravel.
+Sessão do operador é mantida em memória. Nenhum token de operador ou senha é armazenado em SQLite, SecretStore ou logs. A identidade do terminal continua separada da sessão do operador; nenhuma das duas autoriza vendas offline na Fase 5.
 
 ## Credencial protegida
 
@@ -101,13 +94,18 @@ Esta operação é local, não logout de operador nem revogação remota do term
 
 - Baseline anterior à Fase 5: 179 testes padrão, 175 PASS, 4 SKIPPED DPAPI; 0 FAIL/ERROR.
 - Trabalho preservado após a queda: 278 testes, 274 PASS, 4 SKIPPED; 0 FAIL/ERROR, revalidado nesta continuação.
-- Continuação: 3 testes adicionais para indisponibilidade após pairing/compensação, inicialização concorrente do LazySecretStore e evidência SQLite corrompida no restore. Total final: 281, 277 PASS, 4 SKIPPED DPAPI Windows-only em Linux; 0 FAIL/ERROR.
+- Continuação anterior: 3 testes adicionais. Total: 281, 277 PASS, 4 SKIPPED DPAPI Windows-only em Linux; 0 FAIL/ERROR.
+- Fase 5 operador: 20 novos testes (PdvOperatorContractTest × 9, PdvCredentialRotationContractTest × 6, JdbcCredentialRotationRepositoryTest × 5). Total final: 301, 297 PASS, 4 SKIPPED; 0 FAIL/ERROR.
 - Integração opt-in reexecutada nesta continuação: LinuxSecretStoreIT, LinuxMachineCredentialRepositoryIT e LinuxSecretStoreUnavailableIT, 3 PASS. Chaves sintéticas isoladas, remoção confirmada em finally e D-Bus indisponível isolado sem alterar a sessão principal.
 - Backend controlado PdvTestBackend, SQLite temporário e Clock.fixed; suíte padrão sem Internet.
 - Linux: libsecret e JavaFX na sessão gráfica real; V3 aplicada após backup SQLite online seguro, instalação preservada. Nenhum pairing real ou credencial real usado.
 - Windows: testes sintéticos/unitários e DPAPI existente preservado; runtime Windows não validado neste host Linux.
 - macOS: fail-secure testado unitariamente; Keychain não implementado nem validado em host macOS.
 - Banco operacional de desenvolvimento permanece preservado fora do repositório. Não há tabela de operador/senha/token nem venda/sync.
+
+## Conclusão da Fase 5 — 2026-10-11
+
+`./mvnw test` e `./mvnw clean package` passaram com 301 testes; `git diff --check` passou. V4 migration (`credential_rotation`) aplicada. Bootstrap `~/.config/LucraOne/PDV/bootstrap.properties` criado com `api.base-url=https://lucraone.jmfsystem.tech`. A UI exibe três telas: setup/pairing → login do operador → caixa. Credencial de operador mantida apenas em memória; senha nunca persistida. Rotação de credencial implementada com crash recovery via SQLite.
 
 ## Continuação após a queda de energia — 2026-10-10
 

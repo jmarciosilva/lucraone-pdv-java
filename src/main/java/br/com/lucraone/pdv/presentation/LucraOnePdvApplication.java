@@ -14,6 +14,7 @@ import br.com.lucraone.pdv.application.api.PdvApiException;
 import br.com.lucraone.pdv.application.api.PdvFailureKind;
 import br.com.lucraone.pdv.application.catalog.CatalogProduct;
 import br.com.lucraone.pdv.application.catalog.CatalogPrice;
+import br.com.lucraone.pdv.application.catalog.CatalogCacheContext;
 import br.com.lucraone.pdv.infrastructure.auth.TerminalRuntime;
 import br.com.lucraone.pdv.infrastructure.auth.TerminalRuntimeFactory;
 import java.time.Instant;
@@ -589,6 +590,7 @@ public class LucraOnePdvApplication extends Application {
         lastAuthorizationCheck = Instant.now();
         if (snapshot.state() == TerminalAuthState.AUTHENTICATED) {
             terminalAuthorizationValid = true;
+            synchronizeCatalogWhenOptedIn();
             if (authorizationDenied || currentScreen == suspendedScreen) {
                 authorizationDenied = false;
                 runtime.operator().ifPresent(service -> service.invalidateLocal());
@@ -705,6 +707,7 @@ public class LucraOnePdvApplication extends Application {
             try {
                 var stored = runtime.authentication().loadStoredCredential();
                 activeMachineCredential = stored;
+                synchronizeCatalogWhenOptedIn();
             } catch (RuntimeException ignored) {
                 activeMachineCredential = null;
             }
@@ -714,6 +717,22 @@ public class LucraOnePdvApplication extends Application {
                 loadOperatorChoices(activeMachineCredential);
             }
         }));
+    }
+
+    /** Distribution is opt-in so a regular installation never contacts the delivery API by default. */
+    private void synchronizeCatalogWhenOptedIn() {
+        if (!Boolean.getBoolean("lucraone.pdv.catalog-distribution.enabled")) return;
+        TerminalRuntime active = runtime;
+        MachineCredential credential = activeMachineCredential;
+        if (active == null || credential == null) return;
+        active.authentication().lastVerifiedContext().ifPresent(context -> active.catalogDistribution().ifPresent(service ->
+                service.synchronize(credential, CatalogCacheContext.from(context)).whenComplete((report, error) -> {
+                    if (error == null) System.getLogger(LucraOnePdvApplication.class.getName()).log(System.Logger.Level.INFO,
+                            "Catalog sync complete: discovered={0}, applied={1}, recovered={2}",
+                            report.discovered(), report.applied(), report.recoveredAcknowledgements());
+                    else System.getLogger(LucraOnePdvApplication.class.getName()).log(System.Logger.Level.WARNING,
+                            "Catalog sync did not complete; prior active catalog remains available.");
+                })));
     }
 
     private void loadOperatorChoices(MachineCredential credential) {
@@ -885,7 +904,7 @@ public class LucraOnePdvApplication extends Application {
             catalogProductDetails.setText("Selecione um produto para consultar seus dados.");
         }
         long generation = catalogUiGeneration.incrementAndGet();
-        catalogStatus.setText("Consultando catálogo…");
+        catalogStatus.setText("Consultando catálogo local…");
         catalogSearchButton.setDisable(true);
         catalogBarcodeButton.setDisable(true);
         catalogNextPageButton.setDisable(true);
@@ -902,8 +921,8 @@ public class LucraOnePdvApplication extends Application {
             catalogNextPageButton.setVisible(page.hasMore());
             catalogNextPageButton.setManaged(page.hasMore());
             catalogStatus.setText(page.products().isEmpty() && !nextPage
-                    ? "Nenhum produto encontrado. A busca consulta apenas o catálogo autorizado desta loja."
-                    : page.products().size() + " produto(s) consultado(s) no servidor.");
+                    ? "Nenhum produto encontrado na versão local ativa deste catálogo."
+                    : page.products().size() + " produto(s) encontrados na versão local ativa.");
         }));
     }
 
@@ -923,7 +942,7 @@ public class LucraOnePdvApplication extends Application {
         long generation = catalogUiGeneration.incrementAndGet();
         catalogResults.getItems().clear();
         catalogProductDetails.setText("Selecione um produto para consultar seus dados.");
-        catalogStatus.setText("Consultando código de barras exato…");
+        catalogStatus.setText("Lendo código no catálogo local…");
         catalogSearchButton.setDisable(true);
         catalogBarcodeButton.setDisable(true);
         catalogNextPageButton.setDisable(true);
@@ -978,9 +997,9 @@ public class LucraOnePdvApplication extends Application {
         } else if (kind == PdvFailureKind.RATE_LIMITED) {
             catalogStatus.setText("Muitas consultas em sequência. Aguarde um momento antes de pesquisar novamente.");
         } else if (kind == PdvFailureKind.SERVER_ERROR) {
-            catalogStatus.setText("O servidor está temporariamente indisponível. Tente novamente mais tarde.");
+            catalogStatus.setText("Não foi possível ler o catálogo local. Verifique o armazenamento do terminal.");
         } else if (kind == PdvFailureKind.INVALID_RESPONSE || kind == PdvFailureKind.PROTOCOL_ERROR) {
-            catalogStatus.setText("Não foi possível interpretar a resposta do catálogo. Tente novamente mais tarde.");
+            catalogStatus.setText("O registro local do catálogo está inválido. Atualize a carga ou procure o administrador.");
         } else {
             catalogStatus.setText("Não foi possível consultar o catálogo. Verifique a autorização do terminal e tente novamente.");
         }

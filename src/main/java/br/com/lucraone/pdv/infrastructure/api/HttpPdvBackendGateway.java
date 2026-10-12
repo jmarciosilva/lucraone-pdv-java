@@ -3,6 +3,9 @@ package br.com.lucraone.pdv.infrastructure.api;
 import br.com.lucraone.pdv.application.api.BackendHealth;
 import br.com.lucraone.pdv.application.catalog.BarcodeResolution;
 import br.com.lucraone.pdv.application.catalog.CatalogPage;
+import br.com.lucraone.pdv.application.catalog.CatalogDelivery;
+import br.com.lucraone.pdv.application.catalog.CatalogDeliveryManifest;
+import br.com.lucraone.pdv.application.catalog.CatalogDeliveryPart;
 import br.com.lucraone.pdv.application.api.CredentialRotationCommand;
 import br.com.lucraone.pdv.application.api.CredentialRotationResult;
 import br.com.lucraone.pdv.application.api.CurrentTerminal;
@@ -25,6 +28,7 @@ import br.com.lucraone.pdv.infrastructure.api.dto.PairTerminalRequestDto;
 import br.com.lucraone.pdv.infrastructure.api.error.PdvErrorMapper;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -224,6 +228,147 @@ public final class HttpPdvBackendGateway implements PdvBackendGateway, AutoClose
                         .header(OPERATOR_SESSION_HEADER, operatorSession)
                         .GET().build(),
                 (body, requestId) -> responseMapper.barcodeResolution(body, requestId, barcode), ONE_RETRY);
+    }
+
+    @Override
+    public CompletableFuture<java.util.List<CatalogDelivery>> pendingCatalogDeliveries(MachineCredential credential) {
+        Objects.requireNonNull(credential, "credential must not be null");
+        return dispatch("catalog_deliveries_pending", "GET", PdvApiEndpoints.CATALOG_DELIVERIES_PENDING,
+                requestId -> baseRequest(PdvApiEndpoints.CATALOG_DELIVERIES_PENDING, requestId)
+                        .header("Authorization", credential.tokenType() + " " + credential.accessToken()).GET().build(),
+                (body, requestId) -> {
+                    JsonNode data = requiredNode(body, requestId).path("data");
+                    if (!data.isArray()) throw invalidResponse(requestId);
+                    try {
+                        java.util.ArrayList<CatalogDelivery> result = new java.util.ArrayList<>();
+                        for (JsonNode row : data) result.add(new CatalogDelivery(
+                                requiredText(row, "delivery_id", requestId), requiredText(row, "publication_id", requestId),
+                                requiredLong(row, "version", requestId), requiredText(row, "status", requestId),
+                                requiredText(row, "manifest_url", requestId)));
+                        return java.util.List.copyOf(result);
+                    } catch (IllegalArgumentException exception) { throw invalidResponse(requestId); }
+                }, ONE_RETRY);
+    }
+
+    @Override
+    public CompletableFuture<CatalogDeliveryManifest> catalogDeliveryManifest(MachineCredential credential, String deliveryId) {
+        Objects.requireNonNull(credential, "credential must not be null");
+        String path = deliveryPath(deliveryId) + "/manifest";
+        return dispatch("catalog_delivery_manifest", "GET", PdvApiEndpoints.CATALOG_DELIVERY + "{delivery}/manifest",
+                requestId -> baseRequestTo(path, requestId).header("Authorization", credential.tokenType() + " " + credential.accessToken()).GET().build(),
+                (body, requestId) -> {
+                    JsonNode row = requiredNode(body, requestId).path("data");
+                    try {
+                        return new CatalogDeliveryManifest(requiredText(row, "delivery_id", requestId),
+                                requiredText(row, "publication_id", requestId), requiredLong(row, "version", requestId),
+                                requiredInt(row, "schema_version", requestId), requiredText(row, "checksum_algorithm", requestId),
+                                requiredText(row, "checksum", requestId), requiredInt(row, "product_count", requestId),
+                                requiredInt(row, "price_count", requestId), requiredInt(row, "package_count", requestId),
+                                requiredInt(row, "part_size", requestId), requiredInt(row, "part_count", requestId),
+                                requiredInt(row, "resume_from_part", requestId));
+                    } catch (IllegalArgumentException exception) { throw invalidResponse(requestId); }
+                }, ONE_RETRY);
+    }
+
+    @Override
+    public CompletableFuture<CatalogDeliveryPart> catalogDeliveryPart(MachineCredential credential, String deliveryId, int part) {
+        Objects.requireNonNull(credential, "credential must not be null");
+        if (part < 0) return CompletableFuture.failedFuture(new IllegalArgumentException("part must not be negative"));
+        String path = deliveryPath(deliveryId) + "/parts/" + part;
+        String requestId = requestIdGenerator.get();
+        HttpRequest request = baseRequestTo(path, requestId)
+                .header("Authorization", credential.tokenType() + " " + credential.accessToken())
+                .header("Accept", "application/x-ndjson").GET().build();
+        long startedAt = System.nanoTime();
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofByteArray()).handle((response, error) -> {
+            Duration duration = Duration.ofNanos(System.nanoTime() - startedAt);
+            if (error != null) {
+                PdvApiFailure failure = errorMapper.fromTransport(error, requestId);
+                logger.failed("catalog_delivery_part", "GET", PdvApiEndpoints.CATALOG_DELIVERY + "{delivery}/parts/{part}", failure.kind(), duration, requestId);
+                throw new java.util.concurrent.CompletionException(new PdvApiException(failure, error));
+            }
+            int status = response.statusCode();
+            String effectiveId = response.headers().firstValue(REQUEST_ID_HEADER).orElse(requestId);
+            String logPath = PdvApiEndpoints.CATALOG_DELIVERY + "{delivery}/parts/{part}";
+            if (status < 200 || status >= 300) {
+                PdvApiFailure failure = errorMapper.fromResponse(status,
+                        new String(response.body(), StandardCharsets.UTF_8), response.headers().firstValue("Retry-After"),
+                        response.headers().firstValue(REQUEST_ID_HEADER), requestId);
+                logger.failed("catalog_delivery_part", "GET", logPath, failure.kind(), duration, effectiveId);
+                throw new java.util.concurrent.CompletionException(new PdvApiException(failure));
+            }
+            try {
+                String contentType = response.headers().firstValue("Content-Type").orElse("").toLowerCase(Locale.ROOT);
+                int responsePart = Integer.parseInt(response.headers().firstValue("X-PDV-Catalog-Part").orElseThrow());
+                int partCount = Integer.parseInt(response.headers().firstValue("X-PDV-Catalog-Part-Count").orElseThrow());
+                String checksum = response.headers().firstValue("X-PDV-Catalog-Part-Checksum").orElseThrow();
+                if (!contentType.contains("application/x-ndjson") || responsePart != part) throw invalidResponse(effectiveId);
+                logger.completed("catalog_delivery_part", "GET", logPath, status, duration, effectiveId);
+                return new CatalogDeliveryPart(responsePart, partCount, checksum, response.body());
+            } catch (RuntimeException exception) {
+                logger.failed("catalog_delivery_part", "GET", logPath, PdvFailureKind.INVALID_RESPONSE, duration, effectiveId);
+                if (exception instanceof PdvApiException apiException) throw new java.util.concurrent.CompletionException(apiException);
+                throw new java.util.concurrent.CompletionException(invalidResponse(effectiveId));
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<Void> reportCatalogDeliveryProgress(MachineCredential credential, String deliveryId, int lastPart) {
+        if (lastPart < 0) return CompletableFuture.failedFuture(new IllegalArgumentException("lastPart must not be negative"));
+        return postDeliveryAction(credential, deliveryId, "progress", "catalog_delivery_progress", "{\"last_part\":" + lastPart + "}");
+    }
+
+    @Override public CompletableFuture<Void> confirmCatalogDeliveryReceived(MachineCredential credential, String deliveryId) {
+        return postDeliveryAction(credential, deliveryId, "received", "catalog_delivery_received", "{}");
+    }
+    @Override public CompletableFuture<Void> confirmCatalogDeliveryApplied(MachineCredential credential, String deliveryId) {
+        return postDeliveryAction(credential, deliveryId, "applied", "catalog_delivery_applied", "{}");
+    }
+    @Override public CompletableFuture<Void> failCatalogDelivery(MachineCredential credential, String deliveryId, String code) {
+        if (!Set.of("CHECKSUM_MISMATCH", "UNSUPPORTED_SCHEMA", "STORAGE_ERROR", "APPLY_FAILED").contains(code))
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Unsupported catalog failure code."));
+        return postDeliveryAction(credential, deliveryId, "failed", "catalog_delivery_failed", "{\"code\":\"" + code + "\"}");
+    }
+
+    private CompletableFuture<Void> postDeliveryAction(MachineCredential credential, String deliveryId,
+            String action, String operation, String payload) {
+        Objects.requireNonNull(credential, "credential must not be null");
+        String path = deliveryPath(deliveryId) + "/" + action;
+        return dispatch(operation, "POST", PdvApiEndpoints.CATALOG_DELIVERY + "{delivery}/" + action,
+                requestId -> baseRequestTo(path, requestId).header("Authorization", credential.tokenType() + " " + credential.accessToken())
+                        .header("Content-Type", JSON_MEDIA_TYPE)
+                        .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8)).build(),
+                (body, requestId) -> null, SINGLE_ATTEMPT);
+    }
+
+    private static String deliveryPath(String deliveryId) {
+        Objects.requireNonNull(deliveryId, "deliveryId must not be null");
+        if (deliveryId.isBlank() || deliveryId.length() > 100) throw new IllegalArgumentException("deliveryId is invalid");
+        return PdvApiEndpoints.CATALOG_DELIVERY + pathEncode(deliveryId);
+    }
+
+    private JsonNode requiredNode(String body, String requestId) {
+        try { return objectMapper.readTree(body); }
+        catch (com.fasterxml.jackson.core.JsonProcessingException exception) { throw invalidResponse(requestId); }
+    }
+    private static String requiredText(JsonNode row, String key, String requestId) {
+        JsonNode value = row.path(key);
+        if (value.isMissingNode() || !value.isTextual() || value.asText().isBlank()) throw invalidResponse(requestId);
+        return value.asText();
+    }
+    private static int requiredInt(JsonNode row, String key, String requestId) {
+        JsonNode value = row.path(key);
+        if (!value.canConvertToInt()) throw invalidResponse(requestId);
+        return value.intValue();
+    }
+    private static long requiredLong(JsonNode row, String key, String requestId) {
+        JsonNode value = row.path(key);
+        if (!value.canConvertToLong()) throw invalidResponse(requestId);
+        return value.longValue();
+    }
+    private static PdvApiException invalidResponse(String requestId) {
+        return new PdvApiException(PdvApiFailure.of(PdvFailureKind.INVALID_RESPONSE, requestId));
     }
 
     @Override

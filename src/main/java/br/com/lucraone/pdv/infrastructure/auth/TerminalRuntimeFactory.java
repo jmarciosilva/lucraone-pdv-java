@@ -4,7 +4,9 @@ import br.com.lucraone.pdv.application.auth.CredentialRotationService;
 import br.com.lucraone.pdv.application.auth.CredentialRecoveryService;
 import br.com.lucraone.pdv.application.auth.TerminalAuthenticationService;
 import br.com.lucraone.pdv.application.operator.OperatorSessionService;
-import br.com.lucraone.pdv.application.catalog.CatalogQueryService;
+import br.com.lucraone.pdv.application.catalog.CatalogDistributionService;
+import br.com.lucraone.pdv.application.catalog.OfflineCatalogQueryService;
+import br.com.lucraone.pdv.infrastructure.api.NdjsonCatalogSnapshotDecoder;
 import br.com.lucraone.pdv.domain.terminal.Installation;
 import br.com.lucraone.pdv.infrastructure.api.HttpPdvBackendGateway;
 import br.com.lucraone.pdv.infrastructure.api.PdvApiBaseUrl;
@@ -39,7 +41,6 @@ public final class TerminalRuntimeFactory {
         var rotationProofs = new SecretStoreCredentialRotationProofRepository(secretStore);
         var recoveryProofs = new SecretStoreCredentialRecoveryRepository(secretStore);
         var rotations = new JdbcCredentialRotationRepository(transactions);
-        var catalogCache = new JdbcCatalogCacheRepository(transactions);
         String backendIdentity = baseUrl.map(uri -> PdvApiBaseUrl.of(uri).resolve("/").toString()).orElse("");
         var authentication = new TerminalAuthenticationService(terminals, credentials,
                 new JdbcTerminalValidationRepository(transactions), gateway.map(value -> value), backendIdentity,
@@ -51,10 +52,13 @@ public final class TerminalRuntimeFactory {
         Optional<CredentialRecoveryService> recoveryService = gateway.map(
                 gw -> new CredentialRecoveryService(credentials, candidateCredentials, recoveryProofs, gw,
                         authentication, clock, worker));
-        Optional<CatalogQueryService> catalogService = operatorService.map(
-                operator -> new CatalogQueryService(operator, catalogCache,
-                        authentication::lastVerifiedContext, clock));
+        Optional<OfflineCatalogQueryService> catalogService = Optional.of(
+                new OfflineCatalogQueryService(new JdbcActiveCatalogRepository(transactions),
+                        authentication::lastVerifiedContext, worker));
+        var deliveryRepository = new JdbcCatalogDeliveryRepository(transactions);
+        Optional<CatalogDistributionService> distributionService = gateway.map(
+                gw -> new CatalogDistributionService(gw, deliveryRepository, new NdjsonCatalogSnapshotDecoder(), clock, worker));
         return new TerminalRuntime(authentication, gateway.isPresent(), gateway, operatorService, rotationService, recoveryService,
-                catalogService);
+                catalogService, distributionService);
     }
 }

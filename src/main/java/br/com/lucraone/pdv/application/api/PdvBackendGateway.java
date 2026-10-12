@@ -3,6 +3,9 @@ package br.com.lucraone.pdv.application.api;
 import java.time.Instant;
 import br.com.lucraone.pdv.application.catalog.BarcodeResolution;
 import br.com.lucraone.pdv.application.catalog.CatalogPage;
+import br.com.lucraone.pdv.application.catalog.CatalogDelivery;
+import br.com.lucraone.pdv.application.catalog.CatalogDeliveryManifest;
+import br.com.lucraone.pdv.application.catalog.CatalogDeliveryPart;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -38,6 +41,35 @@ public interface PdvBackendGateway {
     default CompletableFuture<BarcodeResolution> resolveBarcode(MachineCredential credential, String operatorSession,
             String barcode) {
         return CompletableFuture.failedFuture(new UnsupportedOperationException("Barcode resolution not supported."));
+    }
+
+    /** Lists only catalog deliveries addressed by this machine credential. */
+    default CompletableFuture<java.util.List<CatalogDelivery>> pendingCatalogDeliveries(MachineCredential credential) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Catalog distribution not supported."));
+    }
+
+    default CompletableFuture<CatalogDeliveryManifest> catalogDeliveryManifest(MachineCredential credential, String deliveryId) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Catalog distribution not supported."));
+    }
+
+    default CompletableFuture<CatalogDeliveryPart> catalogDeliveryPart(MachineCredential credential, String deliveryId, int part) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Catalog distribution not supported."));
+    }
+
+    default CompletableFuture<Void> reportCatalogDeliveryProgress(MachineCredential credential, String deliveryId, int lastPart) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Catalog distribution not supported."));
+    }
+
+    default CompletableFuture<Void> confirmCatalogDeliveryReceived(MachineCredential credential, String deliveryId) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Catalog distribution not supported."));
+    }
+
+    default CompletableFuture<Void> confirmCatalogDeliveryApplied(MachineCredential credential, String deliveryId) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Catalog distribution not supported."));
+    }
+
+    default CompletableFuture<Void> failCatalogDelivery(MachineCredential credential, String deliveryId, String code) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Catalog distribution not supported."));
     }
 
     /** Authenticates an operator and opens a new session. Never retried automatically. */

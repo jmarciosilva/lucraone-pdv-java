@@ -16,6 +16,8 @@ final class PdvApiEndpoints {
     static final String OPERATORS = PREFIX + "/operators";
     static final String CATALOG_PRODUCTS = PREFIX + "/catalog/products";
     static final String CATALOG_RESOLVE_BARCODE = PREFIX + "/catalog/resolve-barcode/";
+    static final String CATALOG_DELIVERIES_PENDING = PREFIX + "/catalog/deliveries/pending";
+    static final String CATALOG_DELIVERY = PREFIX + "/catalog/deliveries/";
     static final String OPERATOR_SESSIONS = PREFIX + "/operator-sessions";
     static final String OPERATOR_SESSION = PREFIX + "/operator-session";
     static final String OPERATOR_SESSION_REVALIDATE = PREFIX + "/operator-session/revalidate";

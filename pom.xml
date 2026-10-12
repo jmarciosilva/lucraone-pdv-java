@@ -97,4 +97,31 @@
             </plugin>
         </plugins>
     </build>
+
+    <!--
+        Profiles de desenvolvimento — não afetam a execução padrão.
+
+        catalog-dist: habilita o recebimento de cargas de catálogo.
+        Ative com: .\mvnw.cmd javafx:run -Pcatalog-dist
+    -->
+    <profiles>
+        <profile>
+            <id>catalog-dist</id>
+            <activation><activeByDefault>false</activeByDefault></activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.openjfx</groupId>
+                        <artifactId>javafx-maven-plugin</artifactId>
+                        <configuration combine.children="append">
+                            <options>
+                                <option>-Dlucraone.pdv.catalog-distribution.enabled=true</option>
+                            </options>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
 </project>

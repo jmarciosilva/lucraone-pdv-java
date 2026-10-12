@@ -45,6 +45,21 @@ class CredentialRotationServiceTest {
         assertTrue(state.rotation == null);
     }
 
+    @Test void restartBeforeFirstPrepareUsesThePersistedOperationAndProof() {
+        var state = new Memory(); var gateway = new RotationGateway(); var fixture = new Fixture(state, gateway);
+        String operationId = "11111111-2222-4333-8444-555555555555";
+        String deliverySecret = "d".repeat(64);
+        state.rotation = new CredentialRotationRepository.PendingRotation(operationId, NOW);
+        state.proof = new CredentialRotationProofRepository.Proof(operationId, deliverySecret);
+
+        fixture.service().recoverPending(fixture.old.credential());
+
+        assertEquals(1, gateway.commands.size());
+        assertEquals(operationId, gateway.commands.getFirst().operationId());
+        assertEquals(deliverySecret, gateway.commands.getFirst().deliverySecret());
+        assertEquals(gateway.serverCandidate.accessToken(), state.active.credential().accessToken());
+    }
+
     @Test void candidatePersistedBeforeConfirmationIsResumedWithoutPreparingAgain() {
         var state = new Memory(); var gateway = new RotationGateway(); var fixture = new Fixture(state, gateway);
         gateway.failFirstConfirm = true;

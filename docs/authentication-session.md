@@ -158,7 +158,7 @@ Esta operação é local, não logout de operador nem revogação remota do term
 
 2. **Rotação após pairing: não acontece (correto).** O pareamento já emite as abilities `pdv:terminal:read`, `pdv:credential:renew`, `pdv:credential:confirm` e `pdv:operator-session`. O `CredentialRotationService.rotate()` não é chamado automaticamente após o pairing. A rotação fica disponível como caminho de renovação explícita.
 
-3. **Heartbeat `POST /api/v1/pdv/terminal/heartbeat`: não existe no backend.** A manutenção da janela deslizante de 240 minutos é feita via `POST /api/v1/pdv/operator-session/revalidate`. O `OperatorSessionService` agora agenda revalidação periódica a cada 30 minutos (daemon `ScheduledExecutorService`) após login bem-sucedido, cancelada no logout ou invalidação de sessão. A interface `AutoCloseable` permite encerramento limpo do scheduler.
+3. **Heartbeat de máquina adicionado na Fase 6.** O cliente envia `POST /api/v1/pdv/terminal/heartbeat` a cada 30 segundos após autenticação para atualizar a presença do terminal (`last_seen_at`). Isso é separado da revalidação humana `POST /api/v1/pdv/operator-session/revalidate`, que mantém a janela de sessão do operador.
 
 4. **`CredentialRotationService` conectado ao runtime.** `TerminalRuntimeFactory` agora instancia `CredentialRotationService` (com `SecretStoreCandidateMachineCredentialRepository`) e o expõe via `TerminalRuntime.rotation()`.
 

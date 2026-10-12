@@ -99,7 +99,9 @@ Requer `Authorization: Bearer`. Resposta mapeada para `CurrentTerminal`. O backe
 devolve `access_token` aqui, apenas `credential.expires_at`.
 
 O cliente usa este GET como verificação periódica de autorização de máquina, com intervalo padrão
-de 30 segundos, sem endpoint heartbeat. 401/403 suspende a UI e invalida a credencial rejeitada,
+de 30 segundos. Após a autenticação, também envia `POST /api/v1/pdv/terminal/heartbeat` com a
+credencial de máquina, sem sessão de operador, a cada 30 segundos. Esse POST mantém `last_seen_at`
+para presença online; falhas de rede são tentadas novamente sem bloquear a interface. 401/403 suspende a UI e invalida a credencial rejeitada,
 mas não identifica por si só bloqueio administrativo. 429 respeita `Retry-After`; timeout, 5xx e
 falha de contrato não são tratados como revogação. A Fase 5 não permite operação comercial offline.
 

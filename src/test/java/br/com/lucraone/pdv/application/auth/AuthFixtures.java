@@ -40,13 +40,20 @@ final class AuthFixtures {
         public void save(TerminalValidation v){if(failSave)throw new IllegalStateException();value=v;}
         public void invalidate(){if(failInvalidate)throw new IllegalStateException();value=null;}
     }
-    static final class Gateway implements PdvBackendGateway {
+    static class Gateway implements PdvBackendGateway {
         final Local local; CurrentTerminal current; TerminalContext pairedContext; RuntimeException failure; MachineCredential pairedCredential;
         int pairs,reads; PairTerminalCommand command; CompletableFuture<CurrentTerminal> pending;
         Gateway(Local local){this.local=local;}
         public CompletableFuture<BackendHealth> health(){throw new AssertionError("health not required");}
         public CompletableFuture<PairedTerminal> pairTerminal(PairTerminalCommand c){pairs++;command=c; if(failure!=null)return CompletableFuture.failedFuture(failure); return CompletableFuture.completedFuture(new PairedTerminal(pairedContext==null?context(local.installation.installationId(),"terminal-test","branch-test"):pairedContext,pairedCredential==null?new MachineCredential("Bearer","lucraone-test-secret-"+UUID.randomUUID(),NOW.plusSeconds(3600)):pairedCredential,"request-pair"));}
         public CompletableFuture<CurrentTerminal> currentTerminal(MachineCredential c){reads++;if(pending!=null)return pending;if(failure!=null)return CompletableFuture.failedFuture(failure);return CompletableFuture.completedFuture(current==null?new CurrentTerminal(context(local.installation.installationId(),"terminal-test","branch-test"),c.expiresAt(),"request-current"):current);}
+        public CompletableFuture<br.com.lucraone.pdv.application.api.OperatorListResult> listOperators(MachineCredential c){throw new AssertionError("listOperators not required");}
+        public CompletableFuture<br.com.lucraone.pdv.application.api.OperatorLoginResult> loginOperator(MachineCredential c,br.com.lucraone.pdv.application.api.OperatorLoginCommand cmd){throw new AssertionError("loginOperator not required");}
+        public CompletableFuture<br.com.lucraone.pdv.application.api.OperatorSessionData> getOperatorSession(MachineCredential c,String t){throw new AssertionError("getOperatorSession not required");}
+        public CompletableFuture<br.com.lucraone.pdv.application.api.OperatorSessionData> revalidateOperatorSession(MachineCredential c,String t){throw new AssertionError("revalidateOperatorSession not required");}
+        public CompletableFuture<Void> logoutOperator(MachineCredential c,String t){throw new AssertionError("logoutOperator not required");}
+        public CompletableFuture<br.com.lucraone.pdv.application.api.CredentialRotationResult> prepareRotation(MachineCredential c,br.com.lucraone.pdv.application.api.CredentialRotationCommand cmd){throw new AssertionError("prepareRotation not required");}
+        public CompletableFuture<java.time.Instant> confirmRotation(MachineCredential c,String id){throw new AssertionError("confirmRotation not required");}
         void fail(PdvFailureKind kind){failure=new PdvApiException(PdvApiFailure.of(kind,"request-failure"));}
     }
 }

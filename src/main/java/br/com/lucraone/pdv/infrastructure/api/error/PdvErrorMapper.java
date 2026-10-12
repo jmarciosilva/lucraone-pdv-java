@@ -36,6 +36,11 @@ public final class PdvErrorMapper {
     private static final String CODE_UNAUTHENTICATED = "unauthenticated";
     private static final String CODE_FORBIDDEN = "forbidden";
     private static final String CODE_RATE_LIMITED = "rate_limited";
+    private static final String CODE_OPERATOR_AUTH_FAILED = "operator_authentication_failed";
+    private static final String CODE_OPERATOR_SESSION_INVALID = "operator_session_invalid";
+    private static final String CODE_OPERATOR_SESSION_CONFLICT = "operator_session_conflict";
+    private static final String CODE_ROTATION_CONFLICT = "credential_conflict";
+    private static final String CODE_RECOVERY_FAILED = "recovery_failed";
 
     private final ObjectMapper objectMapper;
     private final Supplier<ZonedDateTime> now;
@@ -152,6 +157,16 @@ public final class PdvErrorMapper {
                     return PdvFailureKind.FORBIDDEN;
                 case CODE_RATE_LIMITED:
                     return PdvFailureKind.RATE_LIMITED;
+                case CODE_OPERATOR_AUTH_FAILED:
+                    return PdvFailureKind.OPERATOR_AUTH_FAILED;
+                case CODE_OPERATOR_SESSION_INVALID:
+                    return PdvFailureKind.OPERATOR_SESSION_INVALID;
+                case CODE_OPERATOR_SESSION_CONFLICT:
+                    return PdvFailureKind.OPERATOR_SESSION_CONFLICT;
+                case CODE_ROTATION_CONFLICT:
+                    return PdvFailureKind.ROTATION_CONFLICT;
+                case CODE_RECOVERY_FAILED:
+                    return PdvFailureKind.CREDENTIAL_RECOVERY_FAILED;
                 default:
                     break;
             }
@@ -160,6 +175,7 @@ public final class PdvErrorMapper {
         return switch (status) {
             case 401 -> PdvFailureKind.UNAUTHENTICATED;
             case 403 -> PdvFailureKind.FORBIDDEN;
+            case 409 -> PdvFailureKind.OPERATOR_SESSION_CONFLICT;
             // Without a code, 422 cannot be told apart from a plain validation rejection.
             case 422 -> PdvFailureKind.VALIDATION;
             case 429 -> PdvFailureKind.RATE_LIMITED;

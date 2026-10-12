@@ -121,6 +121,28 @@ class PdvApiSecretLoggingTest {
     }
 
     @Test
+    void neverLogsRecoveryCodeDeliverySecretOrCandidateCredential() {
+        String code = "ABC123.abcdef123456";
+        String deliverySecret = "c".repeat(64);
+        String candidate = "synthetic-recovered-machine-token";
+        try (PdvTestBackend backend = PdvTestBackend.start()) {
+            backend.enqueue(StubResponse.json(200, """
+                    {"data":{"rotation":{"id":"00000000-0000-4000-8000-000000000001","status":"PENDING","expires_at":"2026-10-11T12:05:00Z"},
+                      "credential":{"token_type":"Bearer","access_token":"%s","expires_at":"2026-10-11T12:05:00Z"}}}
+                    """.formatted(candidate)));
+            backend.enqueue(StubResponse.json(200, PdvApiFixtures.CREDENTIAL_CONFIRM_SUCCESS
+                    .formatted("00000000-0000-4000-8000-000000000001")));
+            try (HttpPdvBackendGateway gateway = new HttpPdvBackendGateway(backend.baseUrl(), settings())) {
+                var result = gateway.recoverCredential(code, "11111111-2222-4333-8444-555555555555", deliverySecret).join();
+                gateway.confirmRecoveredCredential(result.candidateCredential(), result.operationId()).join();
+            }
+            assertFalse(allLogs().contains(code), allLogs());
+            assertFalse(allLogs().contains(deliverySecret), allLogs());
+            assertFalse(allLogs().contains(candidate), allLogs());
+        }
+    }
+
+    @Test
     void neverLogsTheResponseBodyOnFailure() {
         try (PdvTestBackend backend = PdvTestBackend.start()) {
             backend.respondAlwaysWith(StubResponse.json(500, PdvApiFixtures.error("internal_error", "segredo-no-corpo")));

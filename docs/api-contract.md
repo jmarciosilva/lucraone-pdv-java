@@ -97,6 +97,34 @@ Resposta de sucesso mapeada para `PairedTerminal`, com `terminal`, `tenant`, `co
 Requer `Authorization: Bearer`. Resposta mapeada para `CurrentTerminal`. O backend deliberadamente **não**
 devolve `access_token` aqui, apenas `credential.expires_at`.
 
+O cliente usa este GET como verificação periódica de autorização de máquina, com intervalo padrão
+de 30 segundos, sem endpoint heartbeat. 401/403 suspende a UI e invalida a credencial rejeitada,
+mas não identifica por si só bloqueio administrativo. 429 respeita `Retry-After`; timeout, 5xx e
+falha de contrato não são tratados como revogação. A Fase 5 não permite operação comercial offline.
+
+### Recuperação oficial de credencial
+
+Contrato confirmado no repositório Laravel, sem alterações nele:
+
+- `POST /api/v1/pdv/terminal/credential/recover` é público e recebe `recovery_code` de 19 caracteres,
+  `installation_id` UUID-v4 já conhecido e `delivery_secret` de 64 hex minúsculos CSPRNG. Não aceita
+  `X-Tenant-ID`. Responde 200 com `data.rotation {id,status,expires_at}` e `data.credential`
+  (`token_type`, `access_token`, `expires_at`). Código inválido/expirado/consumido ou instalação
+  divergente retorna 422 `recovery_failed`.
+- `POST /api/v1/pdv/terminal/credential/rotations` exige credencial de máquina e recebe
+  `operation_id` e `delivery_secret`; a resposta contém `data.rotation {id,status,expires_at}` e
+  `data.credential` com a candidata. A validade nessa resposta é apenas a janela pendente.
+- `POST /api/v1/pdv/terminal/credential/confirm` recebe `operation_id` e exige Bearer da candidata;
+  confirma a promoção e devolve `data.rotation` e `data.credential.expires_at`, o vencimento
+  operacional definitivo. O Java atualiza a validade local antes de substituir a credencial.
+- A administração emite o código por `POST /api/v1/pdv/admin/terminals/{terminal}/credential-recovery-codes`,
+  autenticado com contexto humano e permissão de atualização. Essa etapa não é chamada pelo PDV.
+
+Ao bloquear ou revogar, o backend revoga tokens de máquina. Desbloqueio não restaura PAT antigo:
+o terminal deve estar ACTIVE para emitir/consumir a recuperação. O Java persiste prova/candidata no
+SecretStore, confirma antes de substituir o token e valida novamente o GET do terminal. O cliente não
+gera novo pareamento nem altera installation_id.
+
 ## Modelo de erro
 
 Envelope do backend:
@@ -187,7 +215,22 @@ A machine credential devolvida pelo pareamento é secreta. A Fase 4 entregou tra
 
 O token não é gravado em SQLite, properties ou arquivo plaintext. A V3 contém apenas evidência não secreta de validação; o envelope versionado com token e expiração fica dentro do SecretStore. Os `toString()` de credenciais e comandos são redigidos. Sem store disponível não há fallback. macOS continua bloqueado até Keychain real.
 
-**Operator authentication backend contract unavailable.** Não há contrato aprovado de autenticação, sessão ou logout de operador. O forget de terminal é exclusivamente local, sem revogação remota. Políticas e limitações em [Autenticação e sessão](authentication-session.md).
+### Sessões de operador
+
+O login `POST /operator-sessions` retorna `data.session`, `data.operator`, `data.context`,
+`data.capabilities`, `data.policy`, `data.offline` e `data.credential`. O backend pode responder
+`201` ao criar sessão ou `200` ao recuperar sessão existente do mesmo operador após autenticação
+válida. O objeto `operator` fica ao lado de `session`; `email` é opcional e `username` identifica
+o login operacional. `session.expires_at` pode ser `null` quando não há teto absoluto.
+
+`GET /operator-session` e `POST /operator-session/revalidate` retornam os dados de sessão sem
+reentregar `credential`. Ambos mantêm o operador no nível `data.operator`. `DELETE /operator-session`
+encerra a sessão apresentada no header `X-PDV-Operator-Session`.
+
+`operator_authentication_failed` representa credenciais incorretas, `operator_session_invalid`
+representa token inválido e `operator_session_conflict` (HTTP 409) representa conflito de sessão
+operacional no terminal. Uma sessão existente do mesmo operador recuperada pelo login não é conflito.
+O header com a credencial operacional nunca é registrado em log.
 
 ## Assincronismo
 

@@ -42,6 +42,13 @@ class TerminalAuthenticationAsyncTest {
             public CompletableFuture<br.com.lucraone.pdv.application.api.BackendHealth> health(){throw new AssertionError();}
             public CompletableFuture<br.com.lucraone.pdv.application.api.PairedTerminal> pairTerminal(br.com.lucraone.pdv.application.api.PairTerminalCommand c){throw new AssertionError();}
             public CompletableFuture<CurrentTerminal> currentTerminal(br.com.lucraone.pdv.application.api.MachineCredential c){entered.countDown();return pending;}
+            public CompletableFuture<br.com.lucraone.pdv.application.api.OperatorListResult> listOperators(br.com.lucraone.pdv.application.api.MachineCredential c){throw new AssertionError();}
+            public CompletableFuture<br.com.lucraone.pdv.application.api.OperatorLoginResult> loginOperator(br.com.lucraone.pdv.application.api.MachineCredential c,br.com.lucraone.pdv.application.api.OperatorLoginCommand cmd){throw new AssertionError();}
+            public CompletableFuture<br.com.lucraone.pdv.application.api.OperatorSessionData> getOperatorSession(br.com.lucraone.pdv.application.api.MachineCredential c,String t){throw new AssertionError();}
+            public CompletableFuture<br.com.lucraone.pdv.application.api.OperatorSessionData> revalidateOperatorSession(br.com.lucraone.pdv.application.api.MachineCredential c,String t){throw new AssertionError();}
+            public CompletableFuture<Void> logoutOperator(br.com.lucraone.pdv.application.api.MachineCredential c,String t){throw new AssertionError();}
+            public CompletableFuture<br.com.lucraone.pdv.application.api.CredentialRotationResult> prepareRotation(br.com.lucraone.pdv.application.api.MachineCredential c,br.com.lucraone.pdv.application.api.CredentialRotationCommand cmd){throw new AssertionError();}
+            public CompletableFuture<java.time.Instant> confirmRotation(br.com.lucraone.pdv.application.api.MachineCredential c,String id){throw new AssertionError();}
         };
         var worker = Executors.newSingleThreadExecutor();
         try {

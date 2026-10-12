@@ -1,5 +1,6 @@
 package br.com.lucraone.pdv.application.api;
 
+import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -21,4 +22,37 @@ public interface PdvBackendGateway {
 
     /** Reads the terminal context authorised by the given credential. */
     CompletableFuture<CurrentTerminal> currentTerminal(MachineCredential credential);
+
+    /** Lists operators eligible to open a session at this terminal's branch. */
+    CompletableFuture<OperatorListResult> listOperators(MachineCredential credential);
+
+    /** Authenticates an operator and opens a new session. Never retried automatically. */
+    CompletableFuture<OperatorLoginResult> loginOperator(MachineCredential credential, OperatorLoginCommand command);
+
+    /** Fetches an existing operator session by token. */
+    CompletableFuture<OperatorSessionData> getOperatorSession(MachineCredential credential, String sessionToken);
+
+    /** Revalidates (slides) an existing operator session window. Never retried automatically. */
+    CompletableFuture<OperatorSessionData> revalidateOperatorSession(MachineCredential credential, String sessionToken);
+
+    /** Logs out the operator and revokes the given session. Never retried automatically. */
+    CompletableFuture<Void> logoutOperator(MachineCredential credential, String sessionToken);
+
+    /** Initiates a credential rotation — obtains a candidate credential. Never retried automatically. */
+    CompletableFuture<CredentialRotationResult> prepareRotation(MachineCredential credential,
+            CredentialRotationCommand command);
+
+    /** Confirms the rotation using the candidate credential and returns the confirmed-at instant. Never retried. */
+    CompletableFuture<Instant> confirmRotation(MachineCredential candidateCredential, String operationId);
+
+    /** Consumes an administrator-issued recovery code; never retries automatically. */
+    default CompletableFuture<CredentialRotationResult> recoverCredential(String recoveryCode, String installationId,
+            String deliverySecret) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Credential recovery not supported."));
+    }
+
+    /** Promotes a recovered candidate through the backend's official recovery confirmation route. */
+    default CompletableFuture<Instant> confirmRecoveredCredential(MachineCredential candidateCredential, String operationId) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Credential recovery confirmation not supported."));
+    }
 }

@@ -1,6 +1,7 @@
 package br.com.lucraone.pdv.application.auth;
 
 import br.com.lucraone.pdv.application.api.CurrentTerminal;
+import br.com.lucraone.pdv.application.api.TerminalContext;
 import br.com.lucraone.pdv.application.api.MachineCredential;
 import br.com.lucraone.pdv.application.api.PdvApiException;
 import br.com.lucraone.pdv.application.api.PdvBackendGateway;
@@ -30,6 +31,7 @@ public final class TerminalAuthenticationService {
     private final String backendIdentity;
     private final Clock clock;
     private final Executor executor;
+    private volatile TerminalContext lastVerifiedContext;
 
     public TerminalAuthenticationService(TerminalRepository terminals, MachineCredentialRepository credentials,
             TerminalValidationRepository validations, Optional<PdvBackendGateway> gateway,
@@ -47,6 +49,11 @@ public final class TerminalAuthenticationService {
         return execute(this::restoreBlocking);
     }
 
+    /** Last successfully verified, non-secret display context returned by the backend. */
+    public Optional<TerminalContext> lastVerifiedContext() {
+        return Optional.ofNullable(lastVerifiedContext);
+    }
+
     public CompletableFuture<TerminalAuthSnapshot> pair(String code) {
         return execute(() -> {
             if (gateway.isEmpty()) return TerminalAuthSnapshot.of(TerminalAuthState.BACKEND_NOT_CONFIGURED);
@@ -60,15 +67,37 @@ public final class TerminalAuthenticationService {
                     case SECURE_STORE_UNAVAILABLE -> TerminalAuthState.SECURE_STORE_UNAVAILABLE;
                     default -> TerminalAuthState.VALIDATION_FAILED;
                 };
-                return new TerminalAuthSnapshot(state, error.requestId(), Optional.empty(), Optional.empty());
+                return new TerminalAuthSnapshot(state, error.requestId(), Optional.empty(), Optional.empty(), Optional.empty());
             }
             return restoreBlocking();
         });
     }
 
+    /**
+     * Loads the stored machine credential synchronously on the caller's thread. Used by the UI to
+     * obtain the credential after authentication so it can be passed to operator login. Returns
+     * {@code null} when no credential is stored or the store is unavailable.
+     */
+    public MachineCredential loadStoredCredential() {
+        return credentials.load().map(stored -> stored.credential()).orElse(null);
+    }
+
+    /** Non-secret local references for the suspended-terminal screen and recovery request. */
+    public LocalTerminalIdentity localIdentity() {
+        Installation installation = terminals.findInstallation().orElseThrow();
+        TerminalProvisioning provisioning = terminals.findProvisioning().orElseThrow();
+        return new LocalTerminalIdentity(installation.installationId(), provisioning.terminalId(), provisioning.branchId());
+    }
+
+    /** Stable local installation reference, also available before the first pairing. */
+    public java.util.UUID installationId() {
+        return terminals.findInstallation().orElseThrow().installationId();
+    }
+
     public CompletableFuture<TerminalAuthSnapshot> forget() {
         return execute(() -> {
             // Fail before deleting: the installation and provisioning references remain intact.
+            lastVerifiedContext = null;
             validations.invalidate();
             try {
                 credentials.delete();
@@ -138,6 +167,7 @@ public final class TerminalAuthenticationService {
                 || !credential.expiresAt().equals(response.credentialExpiresAt())) {
             return snapshot(TerminalAuthState.CONTEXT_MISMATCH, credential, response.requestId(), null);
         }
+        lastVerifiedContext = response.context();
         validations.save(new TerminalValidation(stored.generation(), installation.installationId(),
                 refs.terminalId(), refs.branchId(), backendIdentity, clock.instant()));
         if (credential.expiredAt(clock.instant())) {
@@ -180,12 +210,19 @@ public final class TerminalAuthenticationService {
             }
             return snapshot(TerminalAuthState.CREDENTIAL_PRESENT_UNVERIFIED, credential, requestId, kind);
         }
-        return snapshot(TerminalAuthState.VALIDATION_FAILED, credential, requestId, kind);
+        return snapshot(TerminalAuthState.VALIDATION_FAILED, credential, requestId, kind,
+                error.failure().retryAfter().orElse(null));
     }
 
     private static TerminalAuthSnapshot snapshot(TerminalAuthState state, MachineCredential credential,
             String requestId, PdvFailureKind kind) {
         return new TerminalAuthSnapshot(state, Optional.ofNullable(requestId),
-                Optional.ofNullable(kind), Optional.of(credential.expiresAt()));
+                Optional.ofNullable(kind), Optional.of(credential.expiresAt()), Optional.empty());
+    }
+
+    private static TerminalAuthSnapshot snapshot(TerminalAuthState state, MachineCredential credential,
+            String requestId, PdvFailureKind kind, java.time.Duration retryAfter) {
+        return new TerminalAuthSnapshot(state, Optional.ofNullable(requestId), Optional.ofNullable(kind),
+                Optional.of(credential.expiresAt()), Optional.ofNullable(retryAfter));
     }
 }

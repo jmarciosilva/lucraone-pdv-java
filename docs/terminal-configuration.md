@@ -15,6 +15,11 @@ O estado de provisionamento fica na tabela `terminal_provisioning`:
 
 `terminal_id` e `branch_id` são referências externas opacas (texto, até 64 caracteres) devolvidas pelo contrato de pairing da Fase 4. O PDV não gera esses valores. A gravação ocorre em uma única transação e o schema rejeita provisionamento parcial. A Fase 5 parcial coordena o fluxo remoto descrito abaixo.
 
+Recusa remota ou recuperação de credencial não apaga nem recria a linha `installation` ou as
+referências `terminal_provisioning`. O `installation_id` conhecido é enviado no fluxo oficial de
+recuperação e precisa corresponder ao vínculo do backend. Consulte [Autenticação e sessão](authentication-session.md)
+para monitoramento e recuperação após desbloqueio administrativo.
+
 ## Configuração bootstrap
 
 Arquivo opcional, não secreto, em UTF-8 no formato Java Properties:

@@ -34,5 +34,19 @@ public enum PdvFailureKind {
     SERVER_ERROR,
 
     /** A successful status carrying a body that could not be understood or was incomplete. */
-    INVALID_RESPONSE
+    INVALID_RESPONSE,
+
+    /** HTTP 422 with {@code operator_authentication_failed}: wrong username or password. */
+    OPERATOR_AUTH_FAILED,
+
+    /** The operator session token was rejected (expired, revoked, or not found). */
+    OPERATOR_SESSION_INVALID,
+
+    /** HTTP 409: a concurrent operator session conflict. */
+    OPERATOR_SESSION_CONFLICT,
+
+    /** HTTP 409 on rotation: a concurrent rotation is already in progress. */
+    ROTATION_CONFLICT,
+    /** The backend rejected an administrator-issued recovery proof. */
+    CREDENTIAL_RECOVERY_FAILED
 }

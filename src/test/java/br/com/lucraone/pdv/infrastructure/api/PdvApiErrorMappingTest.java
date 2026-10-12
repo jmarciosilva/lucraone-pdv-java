@@ -111,6 +111,19 @@ class PdvApiErrorMappingTest {
     }
 
     @Test
+    void mapsCredentialRecoveryFailureFromStableCode() {
+        try (PdvTestBackend backend = PdvTestBackend.start()) {
+            backend.enqueue(StubResponse.json(422, PdvApiFixtures.error("recovery_failed", "Dados inválidos.")));
+            try (HttpPdvBackendGateway gateway = new HttpPdvBackendGateway(backend.baseUrl(), settings())) {
+                PdvApiFailure failure = failureOf(gateway.recoverCredential("ABC123.abcdef123456",
+                        "11111111-2222-4333-8444-555555555555", "a".repeat(64)));
+                assertEquals(PdvFailureKind.CREDENTIAL_RECOVERY_FAILED, failure.kind());
+                assertEquals("recovery_failed", failure.code().orElseThrow());
+            }
+        }
+    }
+
+    @Test
     void rateLimitedWithoutRetryAfterLeavesTheHintEmpty() {
         try (PdvTestBackend backend = PdvTestBackend.start()) {
             backend.respondAlwaysWith(StubResponse.json(429, PdvApiFixtures.error("rate_limited", "Devagar.")));

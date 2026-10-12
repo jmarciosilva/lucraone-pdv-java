@@ -1,28 +1,66 @@
 # Fase 5 — Autenticação e sessão operacional
 
-**Estado: EM ANDAMENTO / PARCIAL.** O lifecycle seguro da credencial de terminal foi implementado; operador e sessão operacional completa permanecem bloqueados. A Fase 4 continua concluída. A Fase 6 não foi iniciada.
+**Estado: IMPLEMENTADA EM TESTES; bloqueio remoto aguarda validação real supervisionada.** Lifecycle seguro da credencial de terminal, rotação, sessão de operador, monitoramento e recuperação oficial de credencial estão no cliente Java. A Fase 4 continua concluída. A Fase 6 não foi iniciada.
 
-## Contrato disponível e autoridade
+## Bloqueio remoto e recuperação da credencial (implementação Java)
 
-Os únicos endpoints PDV aprovados são:
+O cliente consulta `GET /api/v1/pdv/terminal` após validação inicial e a cada 30 segundos enquanto
+o terminal estiver online e autorizado. O intervalo pode ser ajustado para homologação com a
+propriedade JVM `-Dlucraone.pdv.authorization-poll-seconds=N`; o mínimo aceito pelo aplicativo é
+10 segundos. As consultas são serializadas, não se sobrepõem e usam o timeout HTTP normal. `429`
+respeita `Retry-After` por no mínimo o intervalo configurado. O monitor fecha no encerramento do
+aplicativo.
 
-- `GET /api/v1/pdv/health`;
-- `POST /api/v1/pdv/terminals/pair`;
-- `GET /api/v1/pdv/terminal`.
+401/403 em consulta autenticada não são apresentados como prova de bloqueio administrativo: podem
+representar credencial revogada/expirada ou outra condição de autorização. O cliente remove a
+credencial de máquina rejeitada pelo lifecycle existente, invalida a sessão humana em memória e
+substitui imediatamente a tela operacional por **Terminal sem autorização**. Installation ID,
+terminal ID e filial permanecem no SQLite. Não há autorização comercial offline nesta fase; timeout,
+rede indisponível, 429, 5xx e contrato inválido suspendem a operação e recebem mensagens próprias,
+sem classificar terminal bloqueado.
 
-**Operator authentication backend contract unavailable.** Não existe contrato documentado de login, sessão ou logout do operador. Não há senha persistida, usuário local paralelo, JWT inventado ou endpoint novo. A identidade autenticada do terminal não equivale a operador autenticado nem autorização comercial.
+Ao perder conexão, a credencial de máquina válida permanece no SecretStore segundo o comportamento
+online/offline já existente, mas a sessão humana é descartada localmente e o caixa fica suspenso.
+Após reconexão e confirmação online, o aplicativo volta ao login do operador; não restaura a sessão
+humana anterior. A revalidação humana agendada publica snapshots para a apresentação e descarta
+callbacks antigos depois de logout/invalidação.
 
-O backend precisa aprovar, para concluir a Fase 5:
+### Recuperação após desbloqueio administrativo
 
-1. Método e path oficiais de autenticação do operador, requisitos de transporte e vínculo com a machine credential, instalação, terminal e filial.
-2. Schema de request: identificação do operador e prova de autenticação aceita, validação, limites e campos obrigatórios. Nenhum password flow é presumido.
-3. Schema de resposta: identidade do operador, contexto autorizado, permissões necessárias, credencial de sessão, escopo, timestamps e expiração.
-4. Semântica de erros, incluindo 401/403, rate limiting e correlação, sem exposição de credenciais.
-5. Reautenticação e eventual renovação/refresh somente se aprovados, com regras de expiração/revogação.
-6. Método/path e semântica oficiais de logout/revogação da sessão, incluindo comportamento quando offline.
-7. Política explícita de sessão do operador offline, evidência exigida, duração e capacidades permitidas.
+O backend Laravel foi inspecionado em modo somente leitura. Ao sair de ACTIVE, o lifecycle oficial
+revoga os tokens de máquina. Desbloquear depois não ressuscita o token anterior. A sequência oficial
+é: administrador desbloqueia o terminal; emite código de recuperação para terminal ACTIVE e já
+instalado; entrega o código por canal protegido; o PDV consome esse código. BLOCKED não é elegível
+para emissão/consumo até a ação administrativa de desbloqueio. REVOKED não é reativável.
 
-Este documento registra a dependência; não define rotas, payloads ou campos fictícios nem modifica o backend Laravel.
+O cliente aceita apenas o código emitido pelo administrador. Antes do POST público
+`/terminal/credential/recover`, grava recovery code, installation ID e `delivery_secret` CSPRNG no
+SecretStore protegido. O candidato retornado é persistido numa chave protegida separada antes da
+confirmação em `/terminal/credential/confirm`. Só após confirmação o candidato substitui a credencial
+atual; então o Java valida `GET /terminal` e retorna ao login humano. Prova e candidato são mantidos
+em caso de resposta ambígua para retry idempotente; não são gravados em SQLite, properties ou logs.
+Uma tentativa pendente aceita apenas o mesmo código. Não há pairing automático nem alteração da
+identidade local.
+
+O endpoint de emissão de código administrativo não é chamado pelo PDV. Ele exige autenticação humana
+com permissão administrativa e deve ser operado no painel. O Java não pede senha de administrador.
+O teste real de desbloqueio/recuperação do PDV-001 permanece pendente de autorização e execução
+presencial; nenhuma recuperação real foi iniciada nesta implementação.
+
+## Contratos implementados — Fase 5
+
+- `GET /api/v1/pdv/health`
+- `POST /api/v1/pdv/terminals/pair`
+- `GET /api/v1/pdv/terminal`
+- `GET /api/v1/pdv/operators` — lista operadores elegíveis (requer Bearer)
+- `POST /api/v1/pdv/operator-sessions` — login do operador (sem retry; requer Bearer)
+- `GET /api/v1/pdv/operator-session` — consulta sessão (Bearer + X-PDV-Operator-Session)
+- `POST /api/v1/pdv/operator-session/revalidate` — revalida janela deslizante (sem retry)
+- `DELETE /api/v1/pdv/operator-session` — logout do operador (sem retry)
+- `POST /api/v1/pdv/terminal/credential/rotations` — prepara rotação; uma retomada reenvia apenas a mesma operação e prova protegida
+- `POST /api/v1/pdv/terminal/credential/confirm` — confirma rotação/recuperação; repetição controlada retoma uma confirmação ambígua
+
+Sessão do operador é mantida em memória. Nenhum token de operador ou senha é armazenado em SQLite, SecretStore ou logs. A identidade do terminal continua separada da sessão do operador; nenhuma das duas autoriza vendas offline na Fase 5.
 
 ## Credencial protegida
 
@@ -101,13 +139,42 @@ Esta operação é local, não logout de operador nem revogação remota do term
 
 - Baseline anterior à Fase 5: 179 testes padrão, 175 PASS, 4 SKIPPED DPAPI; 0 FAIL/ERROR.
 - Trabalho preservado após a queda: 278 testes, 274 PASS, 4 SKIPPED; 0 FAIL/ERROR, revalidado nesta continuação.
-- Continuação: 3 testes adicionais para indisponibilidade após pairing/compensação, inicialização concorrente do LazySecretStore e evidência SQLite corrompida no restore. Total final: 281, 277 PASS, 4 SKIPPED DPAPI Windows-only em Linux; 0 FAIL/ERROR.
+- Continuação anterior: 3 testes adicionais. Total: 281, 277 PASS, 4 SKIPPED DPAPI Windows-only em Linux; 0 FAIL/ERROR.
+- Fase 5 operador: 20 novos testes (PdvOperatorContractTest × 9, PdvCredentialRotationContractTest × 6, JdbcCredentialRotationRepositoryTest × 5). Total final: 301, 297 PASS, 4 SKIPPED; 0 FAIL/ERROR.
 - Integração opt-in reexecutada nesta continuação: LinuxSecretStoreIT, LinuxMachineCredentialRepositoryIT e LinuxSecretStoreUnavailableIT, 3 PASS. Chaves sintéticas isoladas, remoção confirmada em finally e D-Bus indisponível isolado sem alterar a sessão principal.
 - Backend controlado PdvTestBackend, SQLite temporário e Clock.fixed; suíte padrão sem Internet.
 - Linux: libsecret e JavaFX na sessão gráfica real; V3 aplicada após backup SQLite online seguro, instalação preservada. Nenhum pairing real ou credencial real usado.
 - Windows: testes sintéticos/unitários e DPAPI existente preservado; runtime Windows não validado neste host Linux.
 - macOS: fail-secure testado unitariamente; Keychain não implementado nem validado em host macOS.
 - Banco operacional de desenvolvimento permanece preservado fora do repositório. Não há tabela de operador/senha/token nem venda/sync.
+
+## Auditoria pré-pareamento — 2026-10-11
+
+`./mvnw test` passou com 304 testes (3 novos em `CredentialRotationServiceTest`), 0 FAIL; BUILD SUCCESS.
+
+**Achados e correções aplicadas:**
+
+1. **deliverySecret bug corrigido.** `CredentialRotationService.generateDeliverySecret()` agora gera 32 bytes CSPRNG via `SecureRandom` codificados como 64 hex minúsculos (`HexFormat.of().formatHex`). Antes, o campo era incorretamente preenchido com o UUID do `operationId`.
+
+2. **Rotação após pairing: não acontece (correto).** O pareamento já emite as abilities `pdv:terminal:read`, `pdv:credential:renew`, `pdv:credential:confirm` e `pdv:operator-session`. O `CredentialRotationService.rotate()` não é chamado automaticamente após o pairing. A rotação fica disponível como caminho de renovação explícita.
+
+3. **Heartbeat `POST /api/v1/pdv/terminal/heartbeat`: não existe no backend.** A manutenção da janela deslizante de 240 minutos é feita via `POST /api/v1/pdv/operator-session/revalidate`. O `OperatorSessionService` agora agenda revalidação periódica a cada 30 minutos (daemon `ScheduledExecutorService`) após login bem-sucedido, cancelada no logout ou invalidação de sessão. A interface `AutoCloseable` permite encerramento limpo do scheduler.
+
+4. **`CredentialRotationService` conectado ao runtime.** `TerminalRuntimeFactory` agora instancia `CredentialRotationService` (com `SecretStoreCandidateMachineCredentialRepository`) e o expõe via `TerminalRuntime.rotation()`.
+
+5. **`TerminalRuntime.close()`** agora fecha `OperatorSessionService` antes de fechar o gateway, encerrando o scheduler de revalidação.
+
+## Conclusão da Fase 5 — 2026-10-11
+
+`./mvnw test` e `./mvnw clean package` passaram com 301 testes; `git diff --check` passou. V4 migration (`credential_rotation`) aplicada. Bootstrap `~/.config/LucraOne/PDV/bootstrap.properties` criado com `api.base-url=https://lucraone.jmfsystem.tech`. A UI exibe três telas: setup/pairing → login do operador → caixa. Credencial de operador mantida apenas em memória; senha nunca persistida. Rotação de credencial implementada com crash recovery via SQLite.
+
+## Retomada de rotação após interrupção
+
+O registro V4 em SQLite contém somente `operation_id` e horário. A prova de entrega (`delivery_secret`) e a credencial candidata ficam em chaves distintas do SecretStore protegido; rotação e recuperação administrativa usam slots de candidata separados. No startup e antes das revalidações do terminal, o cliente resolve uma rotação pendente antes de consultar a credencial ativa.
+
+O Laravel foi conferido em leitura: repetir `prepare` com a mesma credencial antiga, `operation_id` e `delivery_secret` devolve a mesma candidata enquanto a operação permanece PENDING; repetir `confirm` com candidata e ID iguais devolve a validade operacional original quando a operação já está CONFIRMED. Assim, respostas HTTP ambíguas são retomadas com o mesmo material, nunca criando outra operação. A candidata só vira ativa depois da confirmação; o marcador SQLite é removido depois da promoção, e a limpeza de segredos é posterior e best-effort.
+
+Uma candidata pendente expirada ou uma resposta definitiva que o protocolo não permita retomar permanece preservada e não inicia outra rotação automaticamente. A recuperação administrativa oficial continua separada e exige código emitido no painel. A garantia depende do contrato Laravel atual de idempotência e do SecretStore estar acessível; não há fallback em texto puro. O monitor de autorização não libera operações comerciais offline.
 
 ## Continuação após a queda de energia — 2026-10-10
 

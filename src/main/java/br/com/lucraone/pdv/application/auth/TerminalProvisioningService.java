@@ -91,6 +91,6 @@ public final class TerminalProvisioningService {
             throw new TerminalAuthException(TerminalAuthException.Kind.PERSISTENCE_FAILED, response.requestId());
         }
         return new TerminalAuthSnapshot(TerminalAuthState.CREDENTIAL_PRESENT_UNVERIFIED,
-                Optional.of(response.requestId()), Optional.empty(), Optional.of(response.credential().expiresAt()));
+                Optional.of(response.requestId()), Optional.empty(), Optional.of(response.credential().expiresAt()), Optional.empty());
     }
 }

@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.nio.file.Path;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 
 class PlatformPathsTest {
     private PlatformPaths paths(OperatingSystem os, Map<String, String> env) {
@@ -22,26 +24,26 @@ class PlatformPathsTest {
         assertEquals(p.applicationDirectory().resolve("secrets"), p.secretsDirectory());
     }
     @Test void windowsRejectsMissingRoot() { assertThrows(PlatformException.class, () -> paths(OperatingSystem.WINDOWS, Map.of())); }
-    @Test void linuxUsesXdg() {
+    @Test @EnabledOnOs(OS.LINUX) void linuxUsesXdg() {
         var p = paths(OperatingSystem.LINUX, Map.of("XDG_DATA_HOME", "/tmp/test-data", "XDG_CONFIG_HOME", "/tmp/test-config"));
         assertEquals(Path.of("/tmp/test-data/LucraOne/PDV"), p.applicationDirectory());
         assertEquals(Path.of("/tmp/test-config/LucraOne/PDV"), p.configDirectory());
         assertEquals(p.applicationDirectory().resolve("data"), p.dataDirectory());
         assertEquals(p.applicationDirectory().resolve("logs"), p.logsDirectory());
     }
-    @Test void linuxUsesHomeFallback() {
+    @Test @EnabledOnOs(OS.LINUX) void linuxUsesHomeFallback() {
         var p = paths(OperatingSystem.LINUX, Map.of("HOME", "/home/test"));
         assertEquals(Path.of("/home/test/.local/share/LucraOne/PDV"), p.applicationDirectory());
         assertEquals(Path.of("/home/test/.config/LucraOne/PDV"), p.configDirectory());
     }
-    @Test void linuxIgnoresRelativeXdg() {
+    @Test @EnabledOnOs(OS.LINUX) void linuxIgnoresRelativeXdg() {
         var p = paths(OperatingSystem.LINUX, Map.of("HOME", "/home/test", "XDG_DATA_HOME", "relative", "XDG_CONFIG_HOME", "relative"));
         assertEquals(Path.of("/home/test/.local/share/LucraOne/PDV"), p.applicationDirectory());
         assertEquals(Path.of("/home/test/.config/LucraOne/PDV"), p.configDirectory());
     }
     @Test void linuxRejectsRelativeHome() { assertThrows(PlatformException.class, () -> paths(OperatingSystem.LINUX, Map.of("HOME", "relative"))); }
     @Test void linuxRejectsMissingHome() { assertThrows(PlatformException.class, () -> paths(OperatingSystem.LINUX, Map.of())); }
-    @Test void macOsUsesApplicationSupport() {
+    @Test @EnabledOnOs(OS.MAC) void macOsUsesApplicationSupport() {
         var p = paths(OperatingSystem.MACOS, Map.of("HOME", "/Users/test"));
         assertEquals(Path.of("/Users/test/Library/Application Support/LucraOne/PDV"), p.applicationDirectory());
         assertEquals(p.applicationDirectory().resolve("config"), p.configDirectory());

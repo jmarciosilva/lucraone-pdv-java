@@ -22,18 +22,26 @@ import java.util.UUID;
 /** Rotation candidate credential uses a separate key to avoid overwriting the current machine credential. */
 public final class SecretStoreCandidateMachineCredentialRepository implements CandidateMachineCredentialRepository {
 
-    private static final String KEY = "machine-credential-candidate-v1";
+    private static final String DEFAULT_KEY = "machine-credential-candidate-v1";
     private static final int MAX_ENVELOPE_BYTES = 1024 * 1024;
     private static final Set<String> FIELDS = Set.of("version", "generation", "token_type", "access_token", "expires_at");
 
     private final SecretStore store;
+    private final String key;
     private final ObjectMapper mapper = JsonMapper.builder()
             .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
             .build();
 
     public SecretStoreCandidateMachineCredentialRepository(SecretStore store) {
+        this(store, DEFAULT_KEY);
+    }
+
+    /** Allows independent protected slots for rotation and administrative recovery candidates. */
+    public SecretStoreCandidateMachineCredentialRepository(SecretStore store, String key) {
         this.store = Objects.requireNonNull(store);
+        if (key == null || !key.matches("[a-z0-9-]{1,80}")) throw new IllegalArgumentException("Invalid secret-store key.");
+        this.key = key;
     }
 
     @Override
@@ -52,7 +60,7 @@ public final class SecretStoreCandidateMachineCredentialRepository implements Ca
             if (bytes.length > MAX_ENVELOPE_BYTES) {
                 throw new CredentialStorageException(CredentialStorageException.Kind.WRITE_FAILED);
             }
-            store.save(KEY, bytes);
+            store.save(key, bytes);
         } catch (SecretStoreException error) {
             throw map(error, CredentialStorageException.Kind.WRITE_FAILED);
         } catch (CredentialStorageException error) {
@@ -68,7 +76,7 @@ public final class SecretStoreCandidateMachineCredentialRepository implements Ca
     public Optional<StoredMachineCredential> load() {
         byte[] bytes;
         try {
-            Optional<byte[]> loaded = store.load(KEY);
+            Optional<byte[]> loaded = store.load(key);
             if (loaded.isEmpty()) return Optional.empty();
             bytes = loaded.orElseThrow();
         } catch (SecretStoreException error) {
@@ -100,7 +108,7 @@ public final class SecretStoreCandidateMachineCredentialRepository implements Ca
     @Override
     public void delete() {
         try {
-            store.delete(KEY);
+            store.delete(key);
         } catch (SecretStoreException error) {
             throw map(error, CredentialStorageException.Kind.DELETE_FAILED);
         } catch (RuntimeException error) {

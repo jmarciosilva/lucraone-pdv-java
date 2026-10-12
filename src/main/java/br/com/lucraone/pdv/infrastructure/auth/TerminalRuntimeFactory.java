@@ -33,6 +33,9 @@ public final class TerminalRuntimeFactory {
         var secretStore = new LazySecretStore(SecretStoreFactory::current);
         var credentials = new SecretStoreMachineCredentialRepository(secretStore);
         var candidateCredentials = new SecretStoreCandidateMachineCredentialRepository(secretStore);
+        var rotationCandidates = new SecretStoreCandidateMachineCredentialRepository(secretStore,
+                "machine-credential-rotation-candidate-v1");
+        var rotationProofs = new SecretStoreCredentialRotationProofRepository(secretStore);
         var recoveryProofs = new SecretStoreCredentialRecoveryRepository(secretStore);
         var rotations = new JdbcCredentialRotationRepository(transactions);
         String backendIdentity = baseUrl.map(uri -> PdvApiBaseUrl.of(uri).resolve("/").toString()).orElse("");
@@ -42,7 +45,7 @@ public final class TerminalRuntimeFactory {
         Optional<OperatorSessionService> operatorService = gateway.map(
                 gw -> new OperatorSessionService(gw, clock, worker, authentication::loadStoredCredential));
         Optional<CredentialRotationService> rotationService = gateway.map(
-                gw -> new CredentialRotationService(credentials, candidateCredentials, rotations, gw, clock));
+                gw -> new CredentialRotationService(credentials, rotationCandidates, rotations, rotationProofs, gw, clock));
         Optional<CredentialRecoveryService> recoveryService = gateway.map(
                 gw -> new CredentialRecoveryService(credentials, candidateCredentials, recoveryProofs, gw,
                         authentication, clock, worker));

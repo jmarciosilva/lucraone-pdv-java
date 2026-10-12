@@ -14,119 +14,159 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 
-/**
- * Blocking orchestration: invoke only on the authentication worker, never the UI thread.
- *
- * <p>Rotation flow:
- * <ol>
- *   <li>Generate an operation_id.</li>
- *   <li>Persist the pending rotation in SQLite BEFORE calling the backend (crash recovery).</li>
- *   <li>Call {@code POST /terminal/credential/rotations} with the current machine credential.</li>
- *   <li>Obtain the candidate credential from the response.</li>
- *   <li>Persist the candidate credential in the SecretStore under the candidate key.</li>
- *   <li>Call {@code POST /terminal/credential/confirm} with the candidate credential.</li>
- *   <li>Replace the machine credential in the SecretStore with the confirmed candidate.</li>
- *   <li>Delete the pending rotation record from SQLite.</li>
- * </ol>
- *
- * <p>No distributed atomicity is claimed. If a step fails, the in-progress record remains in SQLite
- * and the caller may attempt recovery or report an inconsistent state.
- */
+/** Blocking orchestration: invoke only on the authentication worker, never the JavaFX thread. */
 public final class CredentialRotationService {
-
+    private static final Object ROTATION_LOCK = new Object();
     private final MachineCredentialRepository credentials;
-    private final CandidateMachineCredentialRepository candidateCredentials;
+    private final CandidateMachineCredentialRepository candidates;
     private final CredentialRotationRepository rotations;
+    private final CredentialRotationProofRepository proofs;
     private final PdvBackendGateway gateway;
     private final Clock clock;
 
-    public CredentialRotationService(
-            MachineCredentialRepository credentials,
-            CandidateMachineCredentialRepository candidateCredentials,
-            CredentialRotationRepository rotations,
-            PdvBackendGateway gateway,
-            Clock clock) {
+    public CredentialRotationService(MachineCredentialRepository credentials,
+            CandidateMachineCredentialRepository candidateCredentials, CredentialRotationRepository rotations,
+            CredentialRotationProofRepository proofs, PdvBackendGateway gateway, Clock clock) {
         this.credentials = Objects.requireNonNull(credentials);
-        this.candidateCredentials = Objects.requireNonNull(candidateCredentials);
+        this.candidates = Objects.requireNonNull(candidateCredentials);
         this.rotations = Objects.requireNonNull(rotations);
+        this.proofs = Objects.requireNonNull(proofs);
         this.gateway = Objects.requireNonNull(gateway);
         this.clock = Objects.requireNonNull(clock);
     }
 
-    /**
-     * Runs the full rotation and, on success, replaces the current machine credential with the
-     * promoted candidate. Returns normally on success; throws {@link TerminalAuthException} on failure.
-     */
+    /** Starts a rotation or resumes the durable operation instead of replacing it. */
     public void rotate(MachineCredential currentCredential) {
-        String operationId = UUID.randomUUID().toString();
-        rotations.save(new CredentialRotationRepository.PendingRotation(operationId, clock.instant()));
-
-        CredentialRotationResult rotationResult;
-        try {
-            rotationResult = gateway.prepareRotation(currentCredential,
-                    new CredentialRotationCommand(operationId, generateDeliverySecret())).join();
-        } catch (RuntimeException error) {
-            Throwable cause = error instanceof CompletionException ? error.getCause() : error;
-            String requestId = cause instanceof PdvApiException api
-                    ? api.failure().requestId().orElse(null) : null;
-            if (cause instanceof PdvApiException api
-                    && api.kind() == PdvFailureKind.ROTATION_CONFLICT) {
-                throw new TerminalAuthException(TerminalAuthException.Kind.BACKEND_FAILURE, requestId);
+        synchronized (ROTATION_LOCK) {
+            Optional<CredentialRotationRepository.PendingRotation> pending = rotations.load();
+            if (pending.isEmpty()) {
+                // These belong only to a prior completed rotation or to a crash before HTTP prepare.
+                candidates.load().ifPresent(ignored -> candidates.delete());
+                proofs.load().ifPresent(ignored -> proofs.delete());
+                String operationId = UUID.randomUUID().toString();
+                CredentialRotationProofRepository.Proof proof =
+                        new CredentialRotationProofRepository.Proof(operationId, generateDeliverySecret());
+                // The secret must be durable in the OS protected store before SQLite makes the operation visible.
+                proofs.save(proof);
+                rotations.save(new CredentialRotationRepository.PendingRotation(operationId, clock.instant()));
+                pending = rotations.load();
             }
-            throw new TerminalAuthException(TerminalAuthException.Kind.BACKEND_FAILURE, requestId);
+            resume(pending.orElseThrow(), currentCredential);
+        }
+    }
+
+    /**
+     * Completes any interrupted rotation before ordinary terminal validation can reject/delete the old token.
+     * Returns false only when there was no pending operation. An orphan rotation proof is safe to discard:
+     * it is saved before the SQLite marker, and the HTTP prepare call only starts after that marker exists.
+     */
+    public boolean recoverPending(MachineCredential currentCredential) {
+        synchronized (ROTATION_LOCK) {
+            Optional<CredentialRotationRepository.PendingRotation> pending = rotations.load();
+            if (pending.isEmpty()) {
+                // Crash after writing protected proof but before writing SQLite: no HTTP call could have run.
+                proofs.load().ifPresent(ignored -> proofs.delete());
+                candidates.load().ifPresent(ignored -> candidates.delete());
+                return false;
+            }
+            resume(pending.orElseThrow(), currentCredential);
+            return true;
+        }
+    }
+
+    /**
+     * Removes a superseded pending rotation only after the official recovery flow has confirmed and
+     * online-validated its replacement credential. Never call this for an unverified recovery result.
+     */
+    public void clearAfterVerifiedAdministrativeRecovery() {
+        synchronized (ROTATION_LOCK) {
+            rotations.delete();
+            try { candidates.delete(); } catch (RuntimeException ignored) { }
+            try { proofs.delete(); } catch (RuntimeException ignored) { }
+        }
+    }
+
+    private void resume(CredentialRotationRepository.PendingRotation pending, MachineCredential currentCredential) {
+        String operationId = pending.operationId();
+        CredentialRotationProofRepository.Proof proof = proofs.load().orElseThrow(() ->
+                new TerminalAuthException(TerminalAuthException.Kind.PERSISTENCE_FAILED, null));
+        if (!operationId.equals(proof.operationId())) {
+            throw new TerminalAuthException(TerminalAuthException.Kind.CONTEXT_MISMATCH, null);
         }
 
-        MachineCredential candidate = rotationResult.candidateCredential();
-        if (!"Bearer".equals(candidate.tokenType()) || candidate.expiredAt(clock.instant())) {
-            throw new TerminalAuthException(TerminalAuthException.Kind.CONTEXT_MISMATCH,
-                    rotationResult.requestId());
+        MachineCredential candidate;
+        String requestId = null;
+        Optional<StoredMachineCredential> savedCandidate = candidates.load();
+        if (savedCandidate.isPresent()) {
+            candidate = savedCandidate.orElseThrow().credential();
+        } else {
+            if (currentCredential == null) {
+                throw new TerminalAuthException(TerminalAuthException.Kind.CREDENTIAL_EXPIRED, null);
+            }
+            CredentialRotationResult prepared;
+            try {
+                // Laravel makes this idempotent for the same active token, operation ID and delivery secret.
+                prepared = gateway.prepareRotation(currentCredential,
+                        new CredentialRotationCommand(operationId, proof.deliverySecret())).join();
+            } catch (RuntimeException error) { throw backendFailure(error); }
+            if (!operationId.equals(prepared.operationId())) {
+                throw new TerminalAuthException(TerminalAuthException.Kind.CONTEXT_MISMATCH, prepared.requestId());
+            }
+            candidate = prepared.candidateCredential();
+            requestId = prepared.requestId();
+            if (!validBearer(candidate) || candidate.expiredAt(clock.instant())) {
+                throw new TerminalAuthException(TerminalAuthException.Kind.CONTEXT_MISMATCH, requestId);
+            }
+            try { candidates.save(candidate); }
+            catch (RuntimeException error) { throw new TerminalAuthException(TerminalAuthException.Kind.PERSISTENCE_FAILED, requestId); }
         }
 
-        // Persist candidate BEFORE confirming so we can recover after a crash.
-        Optional<StoredMachineCredential> previousCandidate;
-        try {
-            previousCandidate = candidateCredentials.load();
-            candidateCredentials.save(candidate);
-        } catch (RuntimeException error) {
-            throw new TerminalAuthException(TerminalAuthException.Kind.PERSISTENCE_FAILED,
-                    rotationResult.requestId());
-        }
-
+        if (!validBearer(candidate)) throw new TerminalAuthException(TerminalAuthException.Kind.CONTEXT_MISMATCH, requestId);
         java.time.Instant operationalExpiry;
         try {
-            operationalExpiry = gateway.confirmRotation(candidate, rotationResult.operationId()).join();
-        } catch (RuntimeException error) {
-            // Confirmation can have committed even if its response was lost; keep the candidate protected.
-            Throwable cause = error instanceof CompletionException ? error.getCause() : error;
-            String requestId = cause instanceof PdvApiException api
-                    ? api.failure().requestId().orElse(null) : null;
-            throw new TerminalAuthException(TerminalAuthException.Kind.BACKEND_FAILURE, requestId);
-        }
-        if (operationalExpiry == null || !operationalExpiry.isAfter(clock.instant()))
-            throw new TerminalAuthException(TerminalAuthException.Kind.CONTEXT_MISMATCH, rotationResult.requestId());
-        candidate = new MachineCredential(candidate.tokenType(), candidate.accessToken(), operationalExpiry);
-        try {
-            candidateCredentials.save(candidate);
-        } catch (RuntimeException error) {
-            throw new TerminalAuthException(TerminalAuthException.Kind.PERSISTENCE_FAILED, rotationResult.requestId());
+            // Laravel confirm is idempotent while the candidate remains valid, including after prior confirmation.
+            operationalExpiry = gateway.confirmRotation(candidate, operationId).join();
+        } catch (RuntimeException error) { throw backendFailure(error); }
+        if (operationalExpiry == null || !operationalExpiry.isAfter(clock.instant())) {
+            throw new TerminalAuthException(TerminalAuthException.Kind.CONTEXT_MISMATCH, requestId);
         }
 
-        // Promote candidate to current credential.
+        MachineCredential promoted = new MachineCredential(candidate.tokenType(), candidate.accessToken(), operationalExpiry);
         try {
-            credentials.save(new StoredMachineCredential(UUID.randomUUID(), candidate));
+            // Persist the confirmed validity and active credential before clearing any recovery evidence.
+            candidates.save(promoted);
+            StoredMachineCredential existing = credentials.load().orElse(null);
+            if (existing == null || !existing.credential().accessToken().equals(promoted.accessToken())) {
+                credentials.save(new StoredMachineCredential(UUID.randomUUID(), promoted));
+            }
+            // Delete SQLite marker first. Leftover protected items are harmless and are cleaned on next startup.
+            rotations.delete();
         } catch (RuntimeException error) {
-            throw new TerminalAuthException(TerminalAuthException.Kind.PERSISTENCE_FAILED,
-                    rotationResult.requestId());
+            throw new TerminalAuthException(TerminalAuthException.Kind.PERSISTENCE_FAILED, requestId);
         }
+        try { candidates.delete(); } catch (RuntimeException ignored) { }
+        try { proofs.delete(); } catch (RuntimeException ignored) { }
+    }
 
-        // Best-effort cleanup.
-        try { candidateCredentials.delete(); } catch (RuntimeException ignored) {}
-        try { rotations.delete(); } catch (RuntimeException ignored) {}
+    private static boolean validBearer(MachineCredential credential) {
+        return credential != null && "Bearer".equals(credential.tokenType()) && credential.accessToken() != null
+                && !credential.accessToken().isBlank() && credential.accessToken().chars().noneMatch(Character::isISOControl);
+    }
+
+    private static TerminalAuthException backendFailure(RuntimeException error) {
+        Throwable cause = error instanceof CompletionException ? error.getCause() : error;
+        String requestId = cause instanceof PdvApiException api ? api.failure().requestId().orElse(null) : null;
+        if (cause instanceof PdvApiException api && (api.kind() == PdvFailureKind.UNAUTHENTICATED
+                || api.kind() == PdvFailureKind.FORBIDDEN)) {
+            return new TerminalAuthException(TerminalAuthException.Kind.CREDENTIAL_EXPIRED, requestId);
+        }
+        return new TerminalAuthException(TerminalAuthException.Kind.BACKEND_FAILURE, requestId);
     }
 
     private static String generateDeliverySecret() {
         byte[] bytes = new byte[32];
         new SecureRandom().nextBytes(bytes);
-        return HexFormat.of().formatHex(bytes);
+        try { return HexFormat.of().formatHex(bytes); }
+        finally { java.util.Arrays.fill(bytes, (byte) 0); }
     }
 }

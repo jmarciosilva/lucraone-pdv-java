@@ -39,6 +39,21 @@ class JdbcCredentialRotationRepositoryTest {
     }
 
     @Test
+    void pendingOperationSurvivesRepositoryReconstruction() {
+        var directory = new LocalDataDirectory(
+                () -> new WindowsPlatformPaths(key -> temporaryDirectory.toString()));
+        var connections = new LocalDatabaseInitializer(directory).initialize();
+        var transactions = new JdbcTransactionManager(connections);
+        var firstProcessRepository = new JdbcCredentialRotationRepository(transactions);
+        var rotation = new PendingRotation("00000000-0000-4000-8000-000000000003",
+                Instant.parse("2026-10-11T12:00:00Z"));
+        firstProcessRepository.save(rotation);
+
+        var restartedRepository = new JdbcCredentialRotationRepository(transactions);
+        assertEquals(rotation, restartedRepository.load().orElseThrow());
+    }
+
+    @Test
     void saveTwiceReplacesTheRow() {
         var repo = repository();
         repo.save(new PendingRotation("00000000-0000-4000-8000-000000000001",

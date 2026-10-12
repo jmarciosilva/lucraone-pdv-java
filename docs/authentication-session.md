@@ -57,8 +57,8 @@ presencial; nenhuma recuperação real foi iniciada nesta implementação.
 - `GET /api/v1/pdv/operator-session` — consulta sessão (Bearer + X-PDV-Operator-Session)
 - `POST /api/v1/pdv/operator-session/revalidate` — revalida janela deslizante (sem retry)
 - `DELETE /api/v1/pdv/operator-session` — logout do operador (sem retry)
-- `POST /api/v1/pdv/terminal/credential/rotations` — prepara rotação (sem retry)
-- `POST /api/v1/pdv/terminal/credential/confirm` — confirma rotação/recuperação (sem retry)
+- `POST /api/v1/pdv/terminal/credential/rotations` — prepara rotação; uma retomada reenvia apenas a mesma operação e prova protegida
+- `POST /api/v1/pdv/terminal/credential/confirm` — confirma rotação/recuperação; repetição controlada retoma uma confirmação ambígua
 
 Sessão do operador é mantida em memória. Nenhum token de operador ou senha é armazenado em SQLite, SecretStore ou logs. A identidade do terminal continua separada da sessão do operador; nenhuma das duas autoriza vendas offline na Fase 5.
 
@@ -167,6 +167,14 @@ Esta operação é local, não logout de operador nem revogação remota do term
 ## Conclusão da Fase 5 — 2026-10-11
 
 `./mvnw test` e `./mvnw clean package` passaram com 301 testes; `git diff --check` passou. V4 migration (`credential_rotation`) aplicada. Bootstrap `~/.config/LucraOne/PDV/bootstrap.properties` criado com `api.base-url=https://lucraone.jmfsystem.tech`. A UI exibe três telas: setup/pairing → login do operador → caixa. Credencial de operador mantida apenas em memória; senha nunca persistida. Rotação de credencial implementada com crash recovery via SQLite.
+
+## Retomada de rotação após interrupção
+
+O registro V4 em SQLite contém somente `operation_id` e horário. A prova de entrega (`delivery_secret`) e a credencial candidata ficam em chaves distintas do SecretStore protegido; rotação e recuperação administrativa usam slots de candidata separados. No startup e antes das revalidações do terminal, o cliente resolve uma rotação pendente antes de consultar a credencial ativa.
+
+O Laravel foi conferido em leitura: repetir `prepare` com a mesma credencial antiga, `operation_id` e `delivery_secret` devolve a mesma candidata enquanto a operação permanece PENDING; repetir `confirm` com candidata e ID iguais devolve a validade operacional original quando a operação já está CONFIRMED. Assim, respostas HTTP ambíguas são retomadas com o mesmo material, nunca criando outra operação. A candidata só vira ativa depois da confirmação; o marcador SQLite é removido depois da promoção, e a limpeza de segredos é posterior e best-effort.
+
+Uma candidata pendente expirada ou uma resposta definitiva que o protocolo não permita retomar permanece preservada e não inicia outra rotação automaticamente. A recuperação administrativa oficial continua separada e exige código emitido no painel. A garantia depende do contrato Laravel atual de idempotência e do SecretStore estar acessível; não há fallback em texto puro. O monitor de autorização não libera operações comerciais offline.
 
 ## Continuação após a queda de energia — 2026-10-10
 

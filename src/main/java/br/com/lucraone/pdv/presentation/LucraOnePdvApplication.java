@@ -292,10 +292,10 @@ public class LucraOnePdvApplication extends Application {
         logoutButton.getStyleClass().add("button-danger-outline");
         Button refreshButton = new Button("Atualizar status");
         refreshButton.getStyleClass().add("button-secondary");
-        refreshButton.setOnAction(event -> performTerminal(() -> runtime.authentication().restore()));
+        refreshButton.setOnAction(event -> performTerminal(this::restoreTerminal));
         Button verifyButton = new Button("Verificar terminal");
         verifyButton.getStyleClass().add("button-secondary");
-        verifyButton.setOnAction(event -> performTerminal(() -> runtime.authentication().restore()));
+        verifyButton.setOnAction(event -> performTerminal(this::restoreTerminal));
         Region cashierSpacer = new Region();
         HBox cashierActions = new HBox(10, cashierOperator, cashierClock,
                 cashierSpacer, refreshButton, verifyButton, logoutButton);
@@ -320,9 +320,9 @@ public class LucraOnePdvApplication extends Application {
             if (code.isBlank()) { setupMessage.setText("Informe um código de conexão."); return; }
             performTerminal(() -> runtime.authentication().pair(code));
         });
-        validateButton.setOnAction(event -> performTerminal(() -> runtime.authentication().restore()));
+        validateButton.setOnAction(event -> performTerminal(this::restoreTerminal));
         forgetButton.setOnAction(event -> performTerminal(() -> runtime.authentication().forget()));
-        retryAuthorizationButton.setOnAction(event -> performTerminal(() -> runtime.authentication().restore()));
+        retryAuthorizationButton.setOnAction(event -> performTerminal(this::restoreTerminal));
         recoverCredentialButton.setOnAction(event -> {
             String code = recoveryCodeField.getText();
             recoveryCodeField.clear();
@@ -396,11 +396,38 @@ public class LucraOnePdvApplication extends Application {
             operatorListener = snapshot -> Platform.runLater(() -> onOperatorRevalidation(snapshot));
             runtime.operator().ifPresent(service -> service.addListener(operatorListener));
             return runtime;
-        }, worker).thenCompose(value -> value.authentication().restore())
+        }, worker).thenCompose(value -> restoreTerminal())
                 .whenComplete(this::onTerminalAuth);
     }
 
     // ── Terminal auth flow ───────────────────────────────────────────────────
+
+    /** Resume a durable credential rotation before restore can reject the previous machine token. */
+    private CompletableFuture<TerminalAuthSnapshot> restoreTerminal() {
+        TerminalRuntime active = runtime;
+        if (active == null) return CompletableFuture.completedFuture(
+                TerminalAuthSnapshot.of(TerminalAuthState.LOCAL_STATE_UNAVAILABLE));
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                active.rotation().ifPresent(rotation -> rotation.recoverPending(active.authentication().loadStoredCredential()));
+                return null;
+            } catch (br.com.lucraone.pdv.application.auth.TerminalAuthException error) {
+                TerminalAuthState state = switch (error.kind()) {
+                    case CREDENTIAL_EXPIRED -> TerminalAuthState.REAUTHENTICATION_REQUIRED;
+                    case SECURE_STORE_UNAVAILABLE -> TerminalAuthState.SECURE_STORE_UNAVAILABLE;
+                    case PERSISTENCE_FAILED, CONTEXT_MISMATCH, COMPENSATION_FAILED -> TerminalAuthState.INCONSISTENT_STATE;
+                    default -> TerminalAuthState.VALIDATION_FAILED;
+                };
+                return TerminalAuthSnapshot.of(state);
+            } catch (br.com.lucraone.pdv.application.auth.CredentialStorageException error) {
+                return TerminalAuthSnapshot.of(error.kind() == br.com.lucraone.pdv.application.auth.CredentialStorageException.Kind.UNAVAILABLE
+                        ? TerminalAuthState.SECURE_STORE_UNAVAILABLE : TerminalAuthState.INCONSISTENT_STATE);
+            } catch (RuntimeException error) {
+                return TerminalAuthSnapshot.of(TerminalAuthState.LOCAL_STATE_UNAVAILABLE);
+            }
+        }, worker).thenCompose(snapshot -> snapshot == null
+                ? active.authentication().restore() : CompletableFuture.completedFuture(snapshot));
+    }
 
     private void performTerminal(Supplier<CompletableFuture<TerminalAuthSnapshot>> operation) {
         if (authorizationMonitor != null) authorizationMonitor.invalidatePending();
@@ -522,7 +549,7 @@ public class LucraOnePdvApplication extends Application {
     private void startAuthorizationMonitor() {
         if (authorizationMonitor != null) { authorizationMonitor.start(); return; }
         long seconds = Math.max(10, Long.getLong("lucraone.pdv.authorization-poll-seconds", 30L));
-        authorizationMonitor = new TerminalAuthorizationMonitor(() -> runtime.authentication().restore(),
+        authorizationMonitor = new TerminalAuthorizationMonitor(this::restoreTerminal,
                 snapshot -> onMonitoredTerminalAuth(snapshot), java.time.Duration.ofSeconds(seconds));
         authorizationMonitor.start();
     }
@@ -579,7 +606,7 @@ public class LucraOnePdvApplication extends Application {
             }
             case ACCESS_DENIED -> {
                 if (authorizationMonitor != null) authorizationMonitor.invalidatePending();
-                runtime.authentication().restore().whenComplete(this::onTerminalAuth);
+                restoreTerminal().whenComplete(this::onTerminalAuth);
             }
             case NETWORK_UNAVAILABLE, TIMEOUT -> {
                 if (currentScreen == cashierScreen) {
@@ -641,7 +668,18 @@ public class LucraOnePdvApplication extends Application {
     }
 
     private void onCredentialRecovery(TerminalAuthSnapshot snapshot, Throwable error) {
-        if (error == null) { onTerminalAuth(snapshot, null); return; }
+        if (error == null) {
+            if (snapshot != null && snapshot.state() == TerminalAuthState.AUTHENTICATED && runtime != null) {
+                TerminalRuntime active = runtime;
+                CompletableFuture.runAsync(() -> active.rotation().ifPresent(
+                        br.com.lucraone.pdv.application.auth.CredentialRotationService::clearAfterVerifiedAdministrativeRecovery), worker)
+                        .whenComplete((ignored, cleanupError) -> onTerminalAuth(cleanupError == null ? snapshot
+                                : TerminalAuthSnapshot.of(TerminalAuthState.INCONSISTENT_STATE), null));
+            } else {
+                onTerminalAuth(snapshot, null);
+            }
+            return;
+        }
         Platform.runLater(() -> {
             if (stopped) return;
             Throwable cause = error instanceof java.util.concurrent.CompletionException && error.getCause() != null
@@ -700,7 +738,7 @@ public class LucraOnePdvApplication extends Application {
                 // A 401/403 from operator login can mean bad human credentials or revoked
                 // machine authority. Revalidate the machine before deciding which UI to show.
                 if (authorizationMonitor != null) authorizationMonitor.invalidatePending();
-                runtime.authentication().restore().whenComplete((terminal, terminalError) -> Platform.runLater(() -> {
+                restoreTerminal().whenComplete((terminal, terminalError) -> Platform.runLater(() -> {
                     if (stopped || generation != operatorUiGeneration.get()) return;
                     if (terminalError == null && terminal != null
                             && terminal.state() == TerminalAuthState.AUTHENTICATED) {
@@ -920,7 +958,7 @@ public class LucraOnePdvApplication extends Application {
     private void scheduleExpiry(Instant instant) {
         long millis = Math.max(1, java.time.Duration.between(Instant.now(), instant).toMillis() + 1);
         expiry.setDuration(Duration.millis(millis));
-        expiry.setOnFinished(event -> performTerminal(() -> runtime.authentication().restore()));
+        expiry.setOnFinished(event -> performTerminal(this::restoreTerminal));
         expiry.playFromStart();
     }
 

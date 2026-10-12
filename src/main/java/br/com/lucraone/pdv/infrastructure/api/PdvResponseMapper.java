@@ -107,6 +107,10 @@ final class PdvResponseMapper {
         );
     }
 
+    void validateHeartbeat(String body, String requestId) {
+        read(body, com.fasterxml.jackson.databind.JsonNode.class, requestId);
+    }
+
     OperatorListResult operatorList(String body, String requestId) {
         OperatorsListResponseDto dto = read(body, OperatorsListResponseDto.class, requestId);
         OperatorsListResponseDto.Data data = required(dto.data(), requestId);

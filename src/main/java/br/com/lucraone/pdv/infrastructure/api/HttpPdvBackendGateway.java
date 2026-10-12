@@ -177,6 +177,17 @@ public final class HttpPdvBackendGateway implements PdvBackendGateway, AutoClose
     }
 
     @Override
+    public CompletableFuture<Void> heartbeat(MachineCredential credential) {
+        Objects.requireNonNull(credential, "credential must not be null");
+        return dispatch("terminal_heartbeat", "POST", PdvApiEndpoints.TERMINAL_HEARTBEAT,
+                requestId -> baseRequest(PdvApiEndpoints.TERMINAL_HEARTBEAT, requestId)
+                        .header("Authorization", credential.tokenType() + " " + credential.accessToken())
+                        .header("Content-Type", JSON_MEDIA_TYPE)
+                        .POST(HttpRequest.BodyPublishers.ofString("{}", StandardCharsets.UTF_8)).build(),
+                (body, requestId) -> { responseMapper.validateHeartbeat(body, requestId); return null; }, SINGLE_ATTEMPT);
+    }
+
+    @Override
     public CompletableFuture<OperatorListResult> listOperators(MachineCredential credential) {
         Objects.requireNonNull(credential, "credential must not be null");
         return dispatch(

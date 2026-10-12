@@ -28,6 +28,11 @@ public interface PdvBackendGateway {
     /** Reads the terminal context authorised by the given credential. */
     CompletableFuture<CurrentTerminal> currentTerminal(MachineCredential credential);
 
+    /** Updates machine presence without an operator session. */
+    default CompletableFuture<Void> heartbeat(MachineCredential credential) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Terminal heartbeat not supported."));
+    }
+
     /** Lists operators eligible to open a session at this terminal's branch. */
     CompletableFuture<OperatorListResult> listOperators(MachineCredential credential);
 

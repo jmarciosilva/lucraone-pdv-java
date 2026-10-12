@@ -6,6 +6,7 @@ import br.com.lucraone.pdv.application.auth.TerminalAuthenticationService;
 import br.com.lucraone.pdv.application.operator.OperatorSessionService;
 import br.com.lucraone.pdv.application.catalog.CatalogDistributionService;
 import br.com.lucraone.pdv.application.catalog.OfflineCatalogQueryService;
+import br.com.lucraone.pdv.application.auth.TerminalHeartbeatService;
 import br.com.lucraone.pdv.infrastructure.api.HttpPdvBackendGateway;
 import java.util.Optional;
 
@@ -13,10 +14,12 @@ import java.util.Optional;
 public record TerminalRuntime(TerminalAuthenticationService authentication, boolean backendConfigured,
         Optional<HttpPdvBackendGateway> gateway, Optional<OperatorSessionService> operator,
         Optional<CredentialRotationService> rotation, Optional<CredentialRecoveryService> recovery,
-        Optional<OfflineCatalogQueryService> catalog, Optional<CatalogDistributionService> catalogDistribution)
+        Optional<OfflineCatalogQueryService> catalog, Optional<CatalogDistributionService> catalogDistribution,
+        Optional<TerminalHeartbeatService> heartbeat)
         implements AutoCloseable {
     @Override public void close() {
         operator.ifPresent(OperatorSessionService::close);
+        heartbeat.ifPresent(TerminalHeartbeatService::close);
         gateway.ifPresent(HttpPdvBackendGateway::close);
     }
     @Override public String toString() { return "TerminalRuntime[protected]"; }

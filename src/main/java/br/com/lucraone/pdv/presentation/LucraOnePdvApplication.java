@@ -535,6 +535,7 @@ public class LucraOnePdvApplication extends Application {
             });
             if (error != null) {
                 terminalAuthorizationValid = false;
+                runtime.heartbeat().ifPresent(service -> service.setAuthorized(false));
                 showSuspended("Não foi possível confirmar a autorização com o servidor. Tente novamente quando a conexão estiver disponível.", false);
                 return;
             }
@@ -542,6 +543,7 @@ public class LucraOnePdvApplication extends Application {
             lastAuthorizationCheck = Instant.now();
             boolean authenticated = snapshot.state() == TerminalAuthState.AUTHENTICATED;
             terminalAuthorizationValid = authenticated;
+            runtime.heartbeat().ifPresent(service -> service.setAuthorized(authenticated));
 
             if (authenticated) {
                 authorizationDenied = false;
@@ -590,6 +592,7 @@ public class LucraOnePdvApplication extends Application {
         lastAuthorizationCheck = Instant.now();
         if (snapshot.state() == TerminalAuthState.AUTHENTICATED) {
             terminalAuthorizationValid = true;
+            runtime.heartbeat().ifPresent(service -> service.setAuthorized(true));
             synchronizeCatalogWhenOptedIn();
             if (authorizationDenied || currentScreen == suspendedScreen) {
                 authorizationDenied = false;
@@ -601,6 +604,7 @@ public class LucraOnePdvApplication extends Application {
             return;
         }
         terminalAuthorizationValid = false;
+        runtime.heartbeat().ifPresent(service -> service.setAuthorized(false));
         boolean denied = snapshot.state() == TerminalAuthState.PROVISIONED_NO_CREDENTIAL
                 || snapshot.state() == TerminalAuthState.REAUTHENTICATION_REQUIRED
                 || snapshot.failureKind().filter(kind -> kind == br.com.lucraone.pdv.application.api.PdvFailureKind.UNAUTHENTICATED

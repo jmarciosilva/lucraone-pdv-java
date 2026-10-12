@@ -13,6 +13,7 @@ final class PdvApiEndpoints {
     static final String HEALTH = PREFIX + "/health";
     static final String PAIR_TERMINAL = PREFIX + "/terminals/pair";
     static final String CURRENT_TERMINAL = PREFIX + "/terminal";
+    static final String TERMINAL_HEARTBEAT = PREFIX + "/terminal/heartbeat";
     static final String OPERATORS = PREFIX + "/operators";
     static final String CATALOG_PRODUCTS = PREFIX + "/catalog/products";
     static final String CATALOG_RESOLVE_BARCODE = PREFIX + "/catalog/resolve-barcode/";

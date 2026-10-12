@@ -3,6 +3,7 @@ package br.com.lucraone.pdv.infrastructure.auth;
 import br.com.lucraone.pdv.application.auth.CredentialRotationService;
 import br.com.lucraone.pdv.application.auth.CredentialRecoveryService;
 import br.com.lucraone.pdv.application.auth.TerminalAuthenticationService;
+import br.com.lucraone.pdv.application.auth.TerminalHeartbeatService;
 import br.com.lucraone.pdv.application.operator.OperatorSessionService;
 import br.com.lucraone.pdv.application.catalog.CatalogDistributionService;
 import br.com.lucraone.pdv.application.catalog.OfflineCatalogQueryService;
@@ -58,7 +59,10 @@ public final class TerminalRuntimeFactory {
         var deliveryRepository = new JdbcCatalogDeliveryRepository(transactions);
         Optional<CatalogDistributionService> distributionService = gateway.map(
                 gw -> new CatalogDistributionService(gw, deliveryRepository, new NdjsonCatalogSnapshotDecoder(), clock, worker));
+        Optional<TerminalHeartbeatService> heartbeat = gateway.map(gw -> new TerminalHeartbeatService(gw,
+                authentication::loadStoredCredential, authentication::restore, java.time.Duration.ofSeconds(
+                        Math.max(5, Long.getLong("lucraone.pdv.heartbeat-seconds", 30L)))));
         return new TerminalRuntime(authentication, gateway.isPresent(), gateway, operatorService, rotationService, recoveryService,
-                catalogService, distributionService);
+                catalogService, distributionService, heartbeat);
     }
 }

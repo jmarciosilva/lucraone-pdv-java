@@ -86,6 +86,18 @@ class PdvApiSecretLoggingTest {
     }
 
     @Test
+    void neverLogsTheMachineCredentialDuringHeartbeat() {
+        try (PdvTestBackend backend = PdvTestBackend.start()) {
+            backend.enqueue(StubResponse.json(200, "{\"data\":{\"status\":\"ok\"}}"));
+            try (HttpPdvBackendGateway gateway = new HttpPdvBackendGateway(backend.baseUrl(), settings())) {
+                gateway.heartbeat(new MachineCredential("Bearer", PdvApiFixtures.FAKE_ACCESS_TOKEN,
+                        java.time.Instant.parse("2026-12-31T23:59:59Z"))).join();
+            }
+            assertFalse(allLogs().contains(PdvApiFixtures.FAKE_ACCESS_TOKEN), allLogs());
+        }
+    }
+
+    @Test
     void neverLogsTheAccessTokenReturnedByPairing() {
         try (PdvTestBackend backend = PdvTestBackend.start()) {
             backend.enqueue(StubResponse.json(200, PdvApiFixtures.PAIR_SUCCESS

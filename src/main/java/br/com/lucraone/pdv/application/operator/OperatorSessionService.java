@@ -4,6 +4,7 @@ import br.com.lucraone.pdv.application.api.MachineCredential;
 import br.com.lucraone.pdv.application.api.OperatorCredential;
 import br.com.lucraone.pdv.application.api.OperatorLoginCommand;
 import br.com.lucraone.pdv.application.api.OperatorLoginResult;
+import br.com.lucraone.pdv.application.api.OperatorListResult;
 import br.com.lucraone.pdv.application.api.OperatorSessionData;
 import br.com.lucraone.pdv.application.api.PdvApiException;
 import br.com.lucraone.pdv.application.api.PdvBackendGateway;
@@ -89,6 +90,12 @@ public final class OperatorSessionService implements AutoCloseable {
             return new OperatorAuthSnapshot(OperatorAuthState.AUTHENTICATED, Optional.of(session),
                     Optional.of(result.requestId()));
         });
+    }
+
+    /** Reads the backend-authorized operator choices for the terminal's existing branch context. */
+    public CompletableFuture<OperatorListResult> listOperators(MachineCredential machineCredential) {
+        Objects.requireNonNull(machineCredential, "machineCredential must not be null");
+        return CompletableFuture.supplyAsync(() -> gateway.listOperators(machineCredential).join(), executor);
     }
 
     public CompletableFuture<OperatorAuthSnapshot> revalidate(MachineCredential machineCredential) {

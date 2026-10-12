@@ -1,6 +1,7 @@
 package br.com.lucraone.pdv.application.auth;
 
 import br.com.lucraone.pdv.application.api.CurrentTerminal;
+import br.com.lucraone.pdv.application.api.TerminalContext;
 import br.com.lucraone.pdv.application.api.MachineCredential;
 import br.com.lucraone.pdv.application.api.PdvApiException;
 import br.com.lucraone.pdv.application.api.PdvBackendGateway;
@@ -30,6 +31,7 @@ public final class TerminalAuthenticationService {
     private final String backendIdentity;
     private final Clock clock;
     private final Executor executor;
+    private volatile TerminalContext lastVerifiedContext;
 
     public TerminalAuthenticationService(TerminalRepository terminals, MachineCredentialRepository credentials,
             TerminalValidationRepository validations, Optional<PdvBackendGateway> gateway,
@@ -45,6 +47,11 @@ public final class TerminalAuthenticationService {
 
     public CompletableFuture<TerminalAuthSnapshot> restore() {
         return execute(this::restoreBlocking);
+    }
+
+    /** Last successfully verified, non-secret display context returned by the backend. */
+    public Optional<TerminalContext> lastVerifiedContext() {
+        return Optional.ofNullable(lastVerifiedContext);
     }
 
     public CompletableFuture<TerminalAuthSnapshot> pair(String code) {
@@ -82,9 +89,15 @@ public final class TerminalAuthenticationService {
         return new LocalTerminalIdentity(installation.installationId(), provisioning.terminalId(), provisioning.branchId());
     }
 
+    /** Stable local installation reference, also available before the first pairing. */
+    public java.util.UUID installationId() {
+        return terminals.findInstallation().orElseThrow().installationId();
+    }
+
     public CompletableFuture<TerminalAuthSnapshot> forget() {
         return execute(() -> {
             // Fail before deleting: the installation and provisioning references remain intact.
+            lastVerifiedContext = null;
             validations.invalidate();
             try {
                 credentials.delete();
@@ -154,6 +167,7 @@ public final class TerminalAuthenticationService {
                 || !credential.expiresAt().equals(response.credentialExpiresAt())) {
             return snapshot(TerminalAuthState.CONTEXT_MISMATCH, credential, response.requestId(), null);
         }
+        lastVerifiedContext = response.context();
         validations.save(new TerminalValidation(stored.generation(), installation.installationId(),
                 refs.terminalId(), refs.branchId(), backendIdentity, clock.instant()));
         if (credential.expiredAt(clock.instant())) {

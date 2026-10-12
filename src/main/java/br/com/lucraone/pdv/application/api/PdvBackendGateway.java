@@ -1,6 +1,8 @@
 package br.com.lucraone.pdv.application.api;
 
 import java.time.Instant;
+import br.com.lucraone.pdv.application.catalog.BarcodeResolution;
+import br.com.lucraone.pdv.application.catalog.CatalogPage;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -25,6 +27,18 @@ public interface PdvBackendGateway {
 
     /** Lists operators eligible to open a session at this terminal's branch. */
     CompletableFuture<OperatorListResult> listOperators(MachineCredential credential);
+
+    /** Lists a read-only, company-scoped page. Both machine and human credentials are required. */
+    default CompletableFuture<CatalogPage> catalogProducts(MachineCredential credential, String operatorSession,
+            String search, int perPage, String cursor) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Catalog consultation not supported."));
+    }
+
+    /** Resolves an exact barcode string (including leading zeroes). */
+    default CompletableFuture<BarcodeResolution> resolveBarcode(MachineCredential credential, String operatorSession,
+            String barcode) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Barcode resolution not supported."));
+    }
 
     /** Authenticates an operator and opens a new session. Never retried automatically. */
     CompletableFuture<OperatorLoginResult> loginOperator(MachineCredential credential, OperatorLoginCommand command);

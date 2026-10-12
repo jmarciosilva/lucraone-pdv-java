@@ -41,6 +41,8 @@ public final class PdvErrorMapper {
     private static final String CODE_OPERATOR_SESSION_CONFLICT = "operator_session_conflict";
     private static final String CODE_ROTATION_CONFLICT = "credential_conflict";
     private static final String CODE_RECOVERY_FAILED = "recovery_failed";
+    private static final String CODE_PRODUCT_NOT_FOUND = "product_not_found";
+    private static final String CODE_BARCODE_CONFLICT = "barcode_conflict";
 
     private final ObjectMapper objectMapper;
     private final Supplier<ZonedDateTime> now;
@@ -167,6 +169,10 @@ public final class PdvErrorMapper {
                     return PdvFailureKind.ROTATION_CONFLICT;
                 case CODE_RECOVERY_FAILED:
                     return PdvFailureKind.CREDENTIAL_RECOVERY_FAILED;
+                case CODE_PRODUCT_NOT_FOUND:
+                    return PdvFailureKind.PRODUCT_NOT_FOUND;
+                case CODE_BARCODE_CONFLICT:
+                    return PdvFailureKind.BARCODE_CONFLICT;
                 default:
                     break;
             }

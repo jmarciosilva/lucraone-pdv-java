@@ -48,5 +48,9 @@ public enum PdvFailureKind {
     /** HTTP 409 on rotation: a concurrent rotation is already in progress. */
     ROTATION_CONFLICT,
     /** The backend rejected an administrator-issued recovery proof. */
-    CREDENTIAL_RECOVERY_FAILED
+    CREDENTIAL_RECOVERY_FAILED,
+    /** Exact barcode did not match a product in the terminal's company. */
+    PRODUCT_NOT_FOUND,
+    /** The backend found an ambiguous barcode in the terminal's company. */
+    BARCODE_CONFLICT
 }

@@ -1,6 +1,7 @@
 package br.com.lucraone.pdv.application.operator;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import br.com.lucraone.pdv.application.api.MachineCredential;
@@ -12,12 +13,14 @@ import br.com.lucraone.pdv.application.api.PdvApiException;
 import br.com.lucraone.pdv.application.api.PdvApiFailure;
 import br.com.lucraone.pdv.application.api.PdvBackendGateway;
 import br.com.lucraone.pdv.application.api.PdvFailureKind;
+import br.com.lucraone.pdv.application.catalog.CatalogPage;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -63,6 +66,41 @@ class OperatorSessionServiceTest {
             pending.complete(SESSION);
             assertEquals(OperatorAuthState.NOT_AUTHENTICATED, result.get(1, TimeUnit.SECONDS).state());
             assertEquals(OperatorAuthState.NOT_AUTHENTICATED, service.snapshot().state());
+        } finally { service.close(); worker.shutdownNow(); }
+    }
+
+    @Test void catalogRequiresLiveOperatorAndUsesCurrentMachineCredentialAndHumanSession() {
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        MachineCredential rotated = new MachineCredential("Bearer", "machine-current", NOW.plusSeconds(7200));
+        AtomicReference<MachineCredential> supplied = new AtomicReference<>(MACHINE);
+        AtomicReference<MachineCredential> sentMachine = new AtomicReference<>();
+        AtomicReference<String> sentSession = new AtomicReference<>();
+        PdvBackendGateway gateway = new PdvBackendGateway() {
+            public CompletableFuture<br.com.lucraone.pdv.application.api.BackendHealth> health() { throw new UnsupportedOperationException(); }
+            public CompletableFuture<br.com.lucraone.pdv.application.api.PairedTerminal> pairTerminal(br.com.lucraone.pdv.application.api.PairTerminalCommand c) { throw new UnsupportedOperationException(); }
+            public CompletableFuture<br.com.lucraone.pdv.application.api.CurrentTerminal> currentTerminal(MachineCredential c) { throw new UnsupportedOperationException(); }
+            public CompletableFuture<br.com.lucraone.pdv.application.api.OperatorListResult> listOperators(MachineCredential c) { throw new UnsupportedOperationException(); }
+            public CompletableFuture<OperatorLoginResult> loginOperator(MachineCredential c, OperatorLoginCommand cmd) { return CompletableFuture.completedFuture(LOGIN); }
+            public CompletableFuture<OperatorSessionData> getOperatorSession(MachineCredential c, String t) { throw new UnsupportedOperationException(); }
+            public CompletableFuture<OperatorSessionData> revalidateOperatorSession(MachineCredential c, String t) { throw new UnsupportedOperationException(); }
+            public CompletableFuture<Void> logoutOperator(MachineCredential c, String t) { return CompletableFuture.completedFuture(null); }
+            public CompletableFuture<br.com.lucraone.pdv.application.api.CredentialRotationResult> prepareRotation(MachineCredential c, br.com.lucraone.pdv.application.api.CredentialRotationCommand cmd) { throw new UnsupportedOperationException(); }
+            public CompletableFuture<Instant> confirmRotation(MachineCredential c, String id) { throw new UnsupportedOperationException(); }
+            public CompletableFuture<CatalogPage> catalogProducts(MachineCredential c, String session, String search, int size, String cursor) {
+                sentMachine.set(c); sentSession.set(session);
+                return CompletableFuture.completedFuture(new CatalogPage(List.of(), size, null, false));
+            }
+        };
+        OperatorSessionService service = new OperatorSessionService(gateway, Clock.fixed(NOW, ZoneOffset.UTC), worker, supplied::get);
+        try {
+            assertThrows(CompletionException.class, () -> service.catalogProducts("rice", 50, null).join());
+            service.login(MACHINE, new OperatorLoginCommand("operator", "pw")).join();
+            supplied.set(rotated);
+            service.catalogProducts("rice", 50, null).join();
+            assertEquals(rotated, sentMachine.get());
+            assertEquals("human-test", sentSession.get());
+            service.invalidateLocal();
+            assertThrows(CompletionException.class, () -> service.catalogProducts("rice", 50, null).join());
         } finally { service.close(); worker.shutdownNow(); }
     }
 

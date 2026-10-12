@@ -6,6 +6,8 @@ import br.com.lucraone.pdv.application.api.OperatorLoginCommand;
 import br.com.lucraone.pdv.application.api.OperatorLoginResult;
 import br.com.lucraone.pdv.application.api.OperatorListResult;
 import br.com.lucraone.pdv.application.api.OperatorSessionData;
+import br.com.lucraone.pdv.application.catalog.CatalogPage;
+import br.com.lucraone.pdv.application.catalog.BarcodeResolution;
 import br.com.lucraone.pdv.application.api.PdvApiException;
 import br.com.lucraone.pdv.application.api.PdvBackendGateway;
 import br.com.lucraone.pdv.application.api.PdvFailureKind;
@@ -96,6 +98,48 @@ public final class OperatorSessionService implements AutoCloseable {
     public CompletableFuture<OperatorListResult> listOperators(MachineCredential machineCredential) {
         Objects.requireNonNull(machineCredential, "machineCredential must not be null");
         return CompletableFuture.supplyAsync(() -> gateway.listOperators(machineCredential).join(), executor);
+    }
+
+    /** Catalog reads always take the currently stored machine credential and the live human session. */
+    public CompletableFuture<CatalogPage> catalogProducts(String search, int perPage, String cursor) {
+        return CompletableFuture.supplyAsync(() -> {
+            OperatorCredential operator = activeCredential;
+            OperatorSessionData session = activeSession;
+            if (operator == null || session == null || !clock.instant().isBefore(operator.expiresAt())) {
+                generation.incrementAndGet(); clearSession();
+                throw new IllegalStateException("A valid operator session is required for catalog consultation.");
+            }
+            MachineCredential machine = machineCredentialSupplier.get();
+            if (machine == null || machine.expiredAt(clock.instant()))
+                throw new IllegalStateException("A valid terminal authorization is required for catalog consultation.");
+            long requestGeneration = generation.get();
+            CatalogPage result = gateway.catalogProducts(machine, operator.accessToken(), search, perPage, cursor).join();
+            if (generation.get() != requestGeneration || activeCredential != operator
+                    || !clock.instant().isBefore(operator.expiresAt()) || machine.expiredAt(clock.instant()))
+                throw new IllegalStateException("The operator session changed during catalog consultation.");
+            return result;
+        }, executor);
+    }
+
+    /** Exact barcode reads share the same dual-identity and expiry checks as product searches. */
+    public CompletableFuture<BarcodeResolution> resolveBarcode(String barcode) {
+        return CompletableFuture.supplyAsync(() -> {
+            OperatorCredential operator = activeCredential;
+            OperatorSessionData session = activeSession;
+            if (operator == null || session == null || !clock.instant().isBefore(operator.expiresAt())) {
+                generation.incrementAndGet(); clearSession();
+                throw new IllegalStateException("A valid operator session is required for catalog consultation.");
+            }
+            MachineCredential machine = machineCredentialSupplier.get();
+            if (machine == null || machine.expiredAt(clock.instant()))
+                throw new IllegalStateException("A valid terminal authorization is required for catalog consultation.");
+            long requestGeneration = generation.get();
+            BarcodeResolution result = gateway.resolveBarcode(machine, operator.accessToken(), barcode).join();
+            if (generation.get() != requestGeneration || activeCredential != operator
+                    || !clock.instant().isBefore(operator.expiresAt()) || machine.expiredAt(clock.instant()))
+                throw new IllegalStateException("The operator session changed during catalog consultation.");
+            return result;
+        }, executor);
     }
 
     public CompletableFuture<OperatorAuthSnapshot> revalidate(MachineCredential machineCredential) {

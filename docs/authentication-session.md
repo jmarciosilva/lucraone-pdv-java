@@ -1,6 +1,6 @@
 # Fase 5 — Autenticação e sessão operacional
 
-**Estado: IMPLEMENTADA EM TESTES; bloqueio remoto aguarda validação real supervisionada.** Lifecycle seguro da credencial de terminal, rotação, sessão de operador, monitoramento e recuperação oficial de credencial estão no cliente Java. A Fase 4 continua concluída. A Fase 6 não foi iniciada.
+**Estado: IMPLEMENTADA EM TESTES; catálogo somente leitura da Fase 6.2 aguarda validação real supervisionada.** Lifecycle seguro da credencial de terminal, rotação, sessão de operador, monitoramento, recuperação oficial e consulta autenticada de catálogo estão no cliente Java. Nenhuma venda, pagamento ou estoque foi iniciado.
 
 ## Bloqueio remoto e recuperação da credencial (implementação Java)
 

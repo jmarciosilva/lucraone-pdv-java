@@ -148,7 +148,8 @@ final class PdvTestBackend implements AutoCloseable {
             });
             return new RecordedRequest(
                     exchange.getRequestMethod(),
-                    exchange.getRequestURI().getPath(),
+                    exchange.getRequestURI().getRawQuery() == null ? exchange.getRequestURI().getRawPath()
+                            : exchange.getRequestURI().getRawPath() + "?" + exchange.getRequestURI().getRawQuery(),
                     Map.copyOf(headers),
                     new String(body, StandardCharsets.UTF_8)
             );

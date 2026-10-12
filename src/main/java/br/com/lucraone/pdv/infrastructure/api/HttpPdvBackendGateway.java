@@ -1,6 +1,8 @@
 package br.com.lucraone.pdv.infrastructure.api;
 
 import br.com.lucraone.pdv.application.api.BackendHealth;
+import br.com.lucraone.pdv.application.catalog.BarcodeResolution;
+import br.com.lucraone.pdv.application.catalog.CatalogPage;
 import br.com.lucraone.pdv.application.api.CredentialRotationCommand;
 import br.com.lucraone.pdv.application.api.CredentialRotationResult;
 import br.com.lucraone.pdv.application.api.CurrentTerminal;
@@ -25,6 +27,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -183,6 +186,44 @@ public final class HttpPdvBackendGateway implements PdvBackendGateway, AutoClose
                 responseMapper::operatorList,
                 ONE_RETRY
         );
+    }
+
+    @Override
+    public CompletableFuture<CatalogPage> catalogProducts(MachineCredential credential, String operatorSession,
+            String search, int perPage, String cursor) {
+        Objects.requireNonNull(credential, "credential must not be null");
+        requireOperatorSession(operatorSession);
+        if (perPage < 1 || perPage > 100) throw new IllegalArgumentException("perPage must be between 1 and 100");
+        if (search != null && (search.isEmpty() || search.length() > 100))
+            throw new IllegalArgumentException("search must contain 1 to 100 characters");
+        if (cursor != null && (cursor.isEmpty() || cursor.length() > 2048))
+            throw new IllegalArgumentException("cursor must contain 1 to 2048 characters");
+        StringBuilder path = new StringBuilder(PdvApiEndpoints.CATALOG_PRODUCTS).append("?per_page=").append(perPage);
+        if (search != null) path.append("&search=").append(queryEncode(search));
+        if (cursor != null) path.append("&cursor=").append(queryEncode(cursor));
+        String requestPath = path.toString();
+        return dispatch("catalog_products", "GET", PdvApiEndpoints.CATALOG_PRODUCTS,
+                requestId -> baseRequestTo(requestPath, requestId)
+                        .header("Authorization", credential.tokenType() + " " + credential.accessToken())
+                        .header(OPERATOR_SESSION_HEADER, operatorSession)
+                        .GET().build(),
+                responseMapper::catalogProducts, ONE_RETRY);
+    }
+
+    @Override
+    public CompletableFuture<BarcodeResolution> resolveBarcode(MachineCredential credential, String operatorSession,
+            String barcode) {
+        Objects.requireNonNull(credential, "credential must not be null");
+        requireOperatorSession(operatorSession);
+        Objects.requireNonNull(barcode, "barcode must not be null");
+        if (barcode.isEmpty() || barcode.length() > 14) throw new IllegalArgumentException("barcode must contain 1 to 14 characters");
+        String path = PdvApiEndpoints.CATALOG_RESOLVE_BARCODE + pathEncode(barcode);
+        return dispatch("resolve_catalog_barcode", "GET", PdvApiEndpoints.CATALOG_RESOLVE_BARCODE + "{barcode}",
+                requestId -> baseRequestTo(path, requestId)
+                        .header("Authorization", credential.tokenType() + " " + credential.accessToken())
+                        .header(OPERATOR_SESSION_HEADER, operatorSession)
+                        .GET().build(),
+                (body, requestId) -> responseMapper.barcodeResolution(body, requestId, barcode), ONE_RETRY);
     }
 
     @Override
@@ -365,6 +406,43 @@ public final class HttpPdvBackendGateway implements PdvBackendGateway, AutoClose
                 .header("Accept", JSON_MEDIA_TYPE)
                 .header("User-Agent", settings.userAgent())
                 .header(REQUEST_ID_HEADER, requestId);
+    }
+
+    private HttpRequest.Builder baseRequestTo(String requestTarget, String requestId) {
+        int queryAt = requestTarget.indexOf('?');
+        URI uri;
+        if (requestTarget.startsWith(PdvApiEndpoints.CATALOG_RESOLVE_BARCODE)) {
+            String barcodePart = requestTarget.substring(PdvApiEndpoints.CATALOG_RESOLVE_BARCODE.length());
+            uri = URI.create(baseUrl.resolve(PdvApiEndpoints.CATALOG_RESOLVE_BARCODE).toASCIIString() + barcodePart);
+        } else if (queryAt >= 0) {
+            uri = URI.create(baseUrl.resolve(requestTarget.substring(0, queryAt)).toASCIIString()
+                    + requestTarget.substring(queryAt));
+        } else {
+            uri = baseUrl.resolve(requestTarget);
+        }
+        return HttpRequest.newBuilder(uri).timeout(settings.requestTimeout())
+                .header("Accept", JSON_MEDIA_TYPE).header("User-Agent", settings.userAgent())
+                .header(REQUEST_ID_HEADER, requestId);
+    }
+
+    private static void requireOperatorSession(String token) {
+        if (token == null || token.isBlank()) throw new IllegalArgumentException("operator session is required");
+    }
+
+    private static String queryEncode(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    private static String pathEncode(String value) {
+        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        StringBuilder encoded = new StringBuilder(bytes.length);
+        for (byte item : bytes) {
+            int c = item & 0xff;
+            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+                    || c == '-' || c == '.' || c == '_' || c == '~') encoded.append((char) c);
+            else encoded.append('%').append("0123456789ABCDEF".charAt(c >>> 4)).append("0123456789ABCDEF".charAt(c & 15));
+        }
+        return encoded.toString();
     }
 
     private <T> CompletableFuture<T> dispatch(

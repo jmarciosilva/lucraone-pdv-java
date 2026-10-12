@@ -10,6 +10,10 @@ import br.com.lucraone.pdv.application.operator.OperatorAuthState;
 import br.com.lucraone.pdv.application.api.MachineCredential;
 import br.com.lucraone.pdv.application.api.OperatorInfo;
 import br.com.lucraone.pdv.application.api.OperatorLoginCommand;
+import br.com.lucraone.pdv.application.api.PdvApiException;
+import br.com.lucraone.pdv.application.api.PdvFailureKind;
+import br.com.lucraone.pdv.application.catalog.CatalogProduct;
+import br.com.lucraone.pdv.application.catalog.CatalogPrice;
 import br.com.lucraone.pdv.infrastructure.auth.TerminalRuntime;
 import br.com.lucraone.pdv.infrastructure.auth.TerminalRuntimeFactory;
 import java.time.Instant;
@@ -20,6 +24,10 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Supplier;
+import java.text.NumberFormat;
+import java.util.Locale;
+import java.util.List;
+import java.util.concurrent.CompletionException;
 import javafx.animation.PauseTransition;
 import javafx.application.Application;
 import javafx.application.Platform;
@@ -32,6 +40,11 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
+import javafx.scene.control.TableView;
+import javafx.scene.control.TableColumn;
+import javafx.scene.control.SelectionMode;
+import javafx.collections.FXCollections;
+import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -96,6 +109,16 @@ public class LucraOnePdvApplication extends Application {
     private final Button logoutButton    = new Button("Encerrar turno");
     private final VBox   cashierScreen;
     private final TextField productEntryPlaceholder = new TextField();
+    private final Button catalogSearchButton = new Button("Pesquisar");
+    private final Button catalogBarcodeButton = new Button("Código exato");
+    private final Button catalogNextPageButton = new Button("Próximos resultados");
+    private final Label catalogStatus = new Label("Pesquise por nome, SKU ou código de barras.");
+    private final Label catalogProductDetails = new Label("Selecione um produto para consultar seus dados.");
+    private final TableView<CatalogProduct> catalogResults = new TableView<>();
+    private final AtomicLong catalogUiGeneration = new AtomicLong();
+    private final PauseTransition catalogDebounce = new PauseTransition(Duration.millis(700));
+    private volatile String catalogCurrentQuery = "";
+    private volatile String catalogNextCursor;
     private final Label cashierClock = new Label();
 
     // ── Root ─────────────────────────────────────────────────────────────────
@@ -250,24 +273,75 @@ public class LucraOnePdvApplication extends Application {
 
         cashierTitle.getStyleClass().add("cashier-heading");
         cashierOperator.getStyleClass().setAll("status-pill", "status-positive");
-        productEntryPlaceholder.setPromptText("Código de barras ou produto");
-        productEntryPlaceholder.setEditable(false);
-        productEntryPlaceholder.setFocusTraversable(false);
+        productEntryPlaceholder.setPromptText("Pesquisar produto por nome, SKU ou código de barras");
+        productEntryPlaceholder.setEditable(true);
+        productEntryPlaceholder.setFocusTraversable(true);
         productEntryPlaceholder.getStyleClass().add("scan-placeholder");
+        catalogSearchButton.getStyleClass().add("button-primary");
+        catalogSearchButton.setOnAction(event -> searchCatalog(false));
+        catalogBarcodeButton.getStyleClass().add("button-secondary");
+        catalogBarcodeButton.setOnAction(event -> resolveCatalogBarcode());
+        productEntryPlaceholder.setOnAction(event -> searchCatalog(false));
+        productEntryPlaceholder.textProperty().addListener((observable, oldValue, newValue) -> {
+            catalogDebounce.stop();
+            if (isCashierScreen()) {
+                catalogUiGeneration.incrementAndGet();
+                catalogCurrentQuery = newValue.strip();
+                catalogNextCursor = null;
+                catalogResults.getItems().clear();
+                catalogNextPageButton.setVisible(false);
+                catalogNextPageButton.setManaged(false);
+                catalogProductDetails.setText("Selecione um produto para consultar seus dados.");
+                catalogNextPageButton.setDisable(true);
+                catalogSearchButton.setDisable(false);
+                catalogBarcodeButton.setDisable(false);
+                if (!newValue.isBlank()) catalogDebounce.playFromStart();
+                else catalogStatus.setText("Pesquise por nome, SKU ou código de barras.");
+            }
+        });
+        catalogDebounce.setOnFinished(event -> searchCatalog(false));
+        catalogNextPageButton.getStyleClass().add("button-secondary");
+        catalogNextPageButton.setDisable(true);
+        catalogNextPageButton.setVisible(false);
+        catalogNextPageButton.setManaged(false);
+        catalogNextPageButton.setOnAction(event -> searchCatalog(true));
+        catalogStatus.setWrapText(true);
+        catalogStatus.getStyleClass().add("feedback-message");
+        catalogProductDetails.setWrapText(true);
+        catalogProductDetails.getStyleClass().add("catalog-product-details");
+        catalogResults.getSelectionModel().setSelectionMode(SelectionMode.SINGLE);
+        catalogResults.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+        catalogResults.setPlaceholder(new Label("Nenhum produto encontrado"));
+        TableColumn<CatalogProduct, String> productNameColumn = new TableColumn<>("Produto");
+        productNameColumn.setCellValueFactory(cell -> new ReadOnlyStringWrapper(cell.getValue().name()));
+        TableColumn<CatalogProduct, String> skuColumn = new TableColumn<>("SKU");
+        skuColumn.setCellValueFactory(cell -> new ReadOnlyStringWrapper(valueOrDash(cell.getValue().sku())));
+        TableColumn<CatalogProduct, String> barcodeColumn = new TableColumn<>("Código");
+        barcodeColumn.setCellValueFactory(cell -> new ReadOnlyStringWrapper(valueOrDash(cell.getValue().barcode())));
+        TableColumn<CatalogProduct, String> unitColumn = new TableColumn<>("Unidade");
+        unitColumn.setCellValueFactory(cell -> new ReadOnlyStringWrapper(cell.getValue().unit()));
+        TableColumn<CatalogProduct, String> priceColumn = new TableColumn<>("Preço de venda");
+        priceColumn.setCellValueFactory(cell -> new ReadOnlyStringWrapper(displayPrice(cell.getValue())));
+        productNameColumn.setPrefWidth(300); skuColumn.setPrefWidth(110); barcodeColumn.setPrefWidth(150);
+        unitColumn.setPrefWidth(85); priceColumn.setPrefWidth(160);
+        catalogResults.getColumns().setAll(List.of(productNameColumn, skuColumn, barcodeColumn, unitColumn, priceColumn));
+        catalogResults.getSelectionModel().selectedItemProperty().addListener((obs, oldValue, selected) -> {
+            catalogProductDetails.setText(selected == null ? "Selecione um produto para consultar seus dados."
+                    : catalogDetails(selected));
+        });
+        catalogResults.setMinHeight(150);
+        catalogResults.setPrefHeight(350);
         VBox productHeader = new VBox(4, eyebrow("OPERAÇÃO DO CAIXA"), cashierTitle,
                 body("Leitura de produtos disponível em breve."));
-        HBox saleColumns = new HBox(12,
-                tableHeading("ITEM", 55), tableHeading("PRODUTO", 1),
-                tableHeading("QTD", 70), tableHeading("UNITÁRIO", 110), tableHeading("TOTAL", 110));
-        saleColumns.getStyleClass().add("sale-table-header");
-        VBox emptySale = new VBox(8,
-                new Label("＋"), new Label("Nenhum produto adicionado"),
-                body("Esta área será habilitada após a integração do catálogo."));
-        emptySale.setAlignment(Pos.CENTER);
-        emptySale.getStyleClass().add("empty-state");
-        VBox saleArea = new VBox(14, productEntryPlaceholder, saleColumns, emptySale);
+        HBox catalogSearchRow = new HBox(10, productEntryPlaceholder, catalogSearchButton, catalogBarcodeButton);
+        HBox.setHgrow(productEntryPlaceholder, Priority.ALWAYS);
+        VBox catalogArea = new VBox(10, eyebrow("CONSULTA DE CATÁLOGO"), catalogSearchRow,
+                catalogStatus, catalogResults, catalogProductDetails, catalogNextPageButton);
+        catalogArea.getStyleClass().add("catalog-area");
+        VBox.setVgrow(catalogResults, Priority.ALWAYS);
+        VBox saleArea = new VBox(catalogArea);
         saleArea.getStyleClass().addAll("surface-card", "sale-area");
-        VBox.setVgrow(emptySale, Priority.ALWAYS);
+        VBox.setVgrow(catalogArea, Priority.ALWAYS);
 
         VBox saleSummary = new VBox(18,
                 eyebrow("RESUMO DA VENDA"),
@@ -275,7 +349,7 @@ public class LucraOnePdvApplication extends Application {
                 summaryBlock("DESCONTO", "R$ 0,00"),
                 new javafx.scene.control.Separator(),
                 summaryBlock("TOTAL DA VENDA", "R$ 0,00", true),
-                body("Pagamento disponível após a integração comercial."));
+                body("Sem itens na venda. A consulta de catálogo não cria uma venda."));
         saleSummary.getStyleClass().addAll("surface-card", "sale-summary");
         HBox.setHgrow(saleArea, Priority.ALWAYS);
         saleArea.setMaxWidth(Double.MAX_VALUE);
@@ -284,7 +358,7 @@ public class LucraOnePdvApplication extends Application {
         saleSummary.setMaxWidth(410);
         HBox cashierBody = new HBox(18, saleArea, saleSummary);
         cashierBody.setAlignment(Pos.CENTER);
-        VBox cashierMain = new VBox(18, productHeader, cashierBody);
+        VBox cashierMain = new VBox(12, productHeader, cashierBody);
         cashierMain.setPadding(new Insets(16, 24, 14, 24));
         VBox.setVgrow(cashierBody, Priority.ALWAYS);
         cashierClock.getStyleClass().add("muted-text");
@@ -562,6 +636,8 @@ public class LucraOnePdvApplication extends Application {
 
     private void suspendOperatorSession() {
         operatorUiGeneration.incrementAndGet();
+        catalogDebounce.stop();
+        catalogUiGeneration.incrementAndGet();
         terminalAuthorizationValid = false;
         expiry.stop();
         activeMachineCredential = null;
@@ -787,6 +863,154 @@ public class LucraOnePdvApplication extends Application {
         if (authorizationMonitor != null) authorizationMonitor.checkNow();
     }
 
+    private void searchCatalog(boolean nextPage) {
+        catalogDebounce.stop();
+        if (stopped || currentScreen != cashierScreen || !terminalAuthorizationValid || runtime == null
+                || runtime.catalog().isEmpty()) return;
+        String query = nextPage ? catalogCurrentQuery : productEntryPlaceholder.getText().strip();
+        if (query.isBlank()) {
+            catalogStatus.setText("Informe nome, SKU ou código de barras para pesquisar.");
+            return;
+        }
+        if (query.length() > 100) {
+            catalogStatus.setText("A pesquisa pode ter até 100 caracteres.");
+            return;
+        }
+        if (!nextPage) {
+            catalogCurrentQuery = query;
+            catalogNextCursor = null;
+            catalogNextPageButton.setVisible(false);
+            catalogNextPageButton.setManaged(false);
+            catalogResults.getItems().clear();
+            catalogProductDetails.setText("Selecione um produto para consultar seus dados.");
+        }
+        long generation = catalogUiGeneration.incrementAndGet();
+        catalogStatus.setText("Consultando catálogo…");
+        catalogSearchButton.setDisable(true);
+        catalogBarcodeButton.setDisable(true);
+        catalogNextPageButton.setDisable(true);
+        String cursor = nextPage ? catalogNextCursor : null;
+        runtime.catalog().orElseThrow().search(query, 50, cursor).whenComplete((page, error) -> Platform.runLater(() -> {
+            if (!catalogRequestCurrent(generation)) return;
+            catalogSearchButton.setDisable(false);
+            catalogBarcodeButton.setDisable(false);
+            if (error != null) { showCatalogFailure(error, generation); return; }
+            if (nextPage) catalogResults.getItems().addAll(page.products());
+            else catalogResults.setItems(FXCollections.observableArrayList(page.products()));
+            catalogNextCursor = page.nextCursor();
+            catalogNextPageButton.setDisable(!page.hasMore());
+            catalogNextPageButton.setVisible(page.hasMore());
+            catalogNextPageButton.setManaged(page.hasMore());
+            catalogStatus.setText(page.products().isEmpty() && !nextPage
+                    ? "Nenhum produto encontrado. A busca consulta apenas o catálogo autorizado desta loja."
+                    : page.products().size() + " produto(s) consultado(s) no servidor.");
+        }));
+    }
+
+    private void resolveCatalogBarcode() {
+        catalogDebounce.stop();
+        String barcode = productEntryPlaceholder.getText().strip();
+        if (stopped || currentScreen != cashierScreen || !terminalAuthorizationValid || runtime == null
+                || runtime.catalog().isEmpty()) return;
+        if (barcode.isEmpty() || barcode.length() > 14) {
+            catalogStatus.setText("Informe um código de barras com até 14 caracteres.");
+            return;
+        }
+        catalogCurrentQuery = barcode;
+        catalogNextCursor = null;
+        catalogNextPageButton.setVisible(false);
+        catalogNextPageButton.setManaged(false);
+        long generation = catalogUiGeneration.incrementAndGet();
+        catalogResults.getItems().clear();
+        catalogProductDetails.setText("Selecione um produto para consultar seus dados.");
+        catalogStatus.setText("Consultando código de barras exato…");
+        catalogSearchButton.setDisable(true);
+        catalogBarcodeButton.setDisable(true);
+        catalogNextPageButton.setDisable(true);
+        runtime.catalog().orElseThrow().resolveBarcode(barcode).whenComplete((result, error) -> Platform.runLater(() -> {
+            if (!catalogRequestCurrent(generation)) return;
+            catalogSearchButton.setDisable(false);
+            catalogBarcodeButton.setDisable(false);
+            if (error != null) { showCatalogFailure(error, generation); return; }
+            catalogResults.setItems(FXCollections.observableArrayList(result.product()));
+            catalogResults.getSelectionModel().selectFirst();
+            catalogProductDetails.setText(catalogDetails(result.product()) + (result.commercialPackage() == null
+                    ? "   |   Código do produto · quantidade base " + result.quantity().toPlainString() + " " + result.unit()
+                    : "   |   Embalagem: " + result.commercialPackage().name() + " · quantidade base "
+                            + result.quantity().toPlainString() + " " + result.unit()));
+            catalogStatus.setText("Produto encontrado por código de barras exato.");
+        }));
+    }
+
+    private boolean catalogRequestCurrent(long generation) {
+        return !stopped && currentScreen == cashierScreen && terminalAuthorizationValid
+                && catalogUiGeneration.get() == generation;
+    }
+
+    private boolean isCashierScreen() { return cashierScreen != null && currentScreen == cashierScreen; }
+
+    private void showCatalogFailure(Throwable error, long generation) {
+        if (catalogUiGeneration.get() != generation || stopped) return;
+        catalogSearchButton.setDisable(false);
+        catalogBarcodeButton.setDisable(false);
+        Throwable cause = error;
+        while ((cause instanceof CompletionException || cause instanceof java.util.concurrent.ExecutionException)
+                && cause.getCause() != null) cause = cause.getCause();
+        PdvFailureKind kind = cause instanceof PdvApiException api ? api.kind() : null;
+        if (kind == PdvFailureKind.PRODUCT_NOT_FOUND) {
+            catalogResults.getItems().clear();
+            catalogNextPageButton.setDisable(true);
+            catalogNextPageButton.setVisible(false);
+            catalogNextPageButton.setManaged(false);
+            catalogStatus.setText("Nenhum produto encontrado para este código de barras.");
+        } else if (kind == PdvFailureKind.BARCODE_CONFLICT) {
+            catalogStatus.setText("Este código de barras está associado a mais de um produto. Procure o administrador.");
+        } else if (kind == PdvFailureKind.UNAUTHENTICATED || kind == PdvFailureKind.OPERATOR_SESSION_INVALID) {
+            catalogUiGeneration.incrementAndGet();
+            runtime.operator().ifPresent(service -> service.invalidateLocal());
+            catalogStatus.setText("A sessão expirou. Entre novamente para consultar o catálogo.");
+            restoreTerminal().whenComplete(this::onTerminalAuth);
+        } else if (kind == PdvFailureKind.FORBIDDEN) {
+            catalogStatus.setText("Consulta de catálogo indisponível. A credencial deste terminal pode precisar de atualização.");
+            if (authorizationMonitor != null) authorizationMonitor.checkNow();
+        } else if (kind == PdvFailureKind.NETWORK_UNAVAILABLE || kind == PdvFailureKind.TIMEOUT) {
+            catalogStatus.setText("Catálogo temporariamente indisponível. Verifique a conexão e tente novamente.");
+        } else if (kind == PdvFailureKind.RATE_LIMITED) {
+            catalogStatus.setText("Muitas consultas em sequência. Aguarde um momento antes de pesquisar novamente.");
+        } else if (kind == PdvFailureKind.SERVER_ERROR) {
+            catalogStatus.setText("O servidor está temporariamente indisponível. Tente novamente mais tarde.");
+        } else if (kind == PdvFailureKind.INVALID_RESPONSE || kind == PdvFailureKind.PROTOCOL_ERROR) {
+            catalogStatus.setText("Não foi possível interpretar a resposta do catálogo. Tente novamente mais tarde.");
+        } else {
+            catalogStatus.setText("Não foi possível consultar o catálogo. Verifique a autorização do terminal e tente novamente.");
+        }
+    }
+
+    private static String valueOrDash(String value) { return value == null || value.isBlank() ? "—" : value; }
+
+    private static String displayPrice(CatalogProduct product) {
+        List<CatalogPrice> brl = product.salePrices().stream().filter(price -> "BRL".equals(price.currency())).toList();
+        if (brl.size() == 1 && product.salePrices().size() == 1) return brazilianCurrency(brl.get(0));
+        if (brl.size() == 1) return "Múltiplas moedas";
+        if (brl.size() > 1) return "Preço em conflito";
+        return product.salePrices().isEmpty() ? "Preço não cadastrado" : "Ver outras moedas";
+    }
+
+    private static String catalogDetails(CatalogProduct product) {
+        String prices = product.salePrices().isEmpty() ? "Preço não cadastrado" : product.salePrices().stream()
+                .map(price -> "BRL".equals(price.currency()) ? brazilianCurrency(price)
+                        : price.currency() + " " + price.amount().toPlainString())
+                .collect(java.util.stream.Collectors.joining("  ·  "));
+        return product.name() + "   |   SKU: " + valueOrDash(product.sku()) + "   |   Código: "
+                + valueOrDash(product.barcode()) + "   |   Unidade: " + product.unit() + "   |   " + prices;
+    }
+
+    private static String brazilianCurrency(CatalogPrice price) {
+        NumberFormat format = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("pt-BR"));
+        format.setCurrency(java.util.Currency.getInstance("BRL"));
+        return format.format(price.amount());
+    }
+
     private void showLoginError(String message) {
         loginError.setText(message);
         loginError.setVisible(true);
@@ -794,6 +1018,20 @@ public class LucraOnePdvApplication extends Application {
     }
 
     private void showScreen(Node screen, String status) {
+        if (screen != cashierScreen) {
+            catalogDebounce.stop();
+            catalogUiGeneration.incrementAndGet();
+            productEntryPlaceholder.clear();
+            catalogSearchButton.setDisable(false);
+            catalogBarcodeButton.setDisable(false);
+            catalogNextPageButton.setDisable(true);
+            catalogResults.getItems().clear();
+            catalogProductDetails.setText("Selecione um produto para consultar seus dados.");
+            catalogCurrentQuery = "";
+            catalogNextCursor = null;
+            catalogNextPageButton.setVisible(false);
+            catalogNextPageButton.setManaged(false);
+        }
         currentScreen = screen;
         root.getChildren().setAll(screenHeader(status), screenFrame(screen), appFooter());
     }

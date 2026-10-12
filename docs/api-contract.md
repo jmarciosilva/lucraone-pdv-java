@@ -50,7 +50,8 @@ Enviados em toda chamada:
 
 `Content-Type: application/json` é enviado apenas no `POST` de pareamento.
 
-`Authorization: Bearer <machine credential>` é enviado apenas na leitura autenticada do terminal.
+`Authorization: Bearer <machine credential>` é enviado nas leituras autenticadas. As consultas de catálogo
+também exigem `X-PDV-Operator-Session`; nenhum segredo segue em query ou corpo.
 
 ## Timeouts
 
@@ -163,6 +164,36 @@ bloqueado ou tenant suspenso. Em 403 não há tentativa de contornar com header 
 
 Resposta `2xx` cujo corpo não seja JSON é tratada como `INVALID_RESPONSE`: uma página HTML de proxy nunca
 é interpretada como payload de sucesso.
+
+## Consulta de catálogo — Fase 6.2
+
+O cliente consome somente `GET /api/v1/pdv/catalog/products` e
+`GET /api/v1/pdv/catalog/resolve-barcode/{barcode}`. Ambos exigem Bearer da máquina e
+`X-PDV-Operator-Session` válido; `X-Tenant-ID` não é enviado. A credencial precisa possuir
+`pdv:catalog:read`. Um 403 apresenta orientação de atualização, sem rotação automática. Se houver sessão
+de caixa ativa, qualquer atualização deve seguir o fluxo controlado e exigir novo login quando aplicável.
+
+A listagem envia `per_page` (1–100, localmente 50), `search` (1–100 caracteres) e o `cursor` opaco
+devolvido pelo backend. O filtro é mantido ao continuar a paginação. A resolução do código de barras é
+exata, textual, limitada a 14 caracteres e preserva zeros à esquerda. Produto base devolve quantidade 1;
+embalagem devolve seu fator. Preços são `BigDecimal` e cada moeda é mantida separadamente. Uma lista de
+preços vazia representa preço ausente, nunca zero.
+
+Chamadas do gateway são assíncronas. A interface usa debounce e geração de consulta para descartar
+respostas antigas após nova busca, logout ou suspensão. Cada requisição verifica sessão humana e carrega
+a credencial atual da máquina, sem armazenar qualquer credencial no cache. Selecionar um resultado apenas
+mostra dados do produto; não o adiciona à venda.
+
+A migration Flyway V5 cria cache de leitura em tabelas próprias, escopadas por terminal, tenant e empresa.
+Uma resposta válida faz upsert apenas dos produtos efetivamente retornados e atualiza preços/embalagens
+na mesma transação. Ausência numa página não remove registros locais. Como o cursor não é snapshot e a API
+não fornece tombstones, o cliente não substitui integralmente o catálogo nem declara sincronização completa.
+`queried_at` marca quando cada linha foi consultada. Cache não autoriza venda offline e nunca é usado para
+contornar falha de autorização.
+
+Os códigos `product_not_found` (404) e `barcode_conflict` (409) são classificados separadamente. O 403
+permanece genérico porque o contrato inclui ability ausente e outras restrições; não dispara renovação
+automática. O 401 leva à invalidação da sessão local e revalidação online do terminal.
 
 ## Rate limiting
 

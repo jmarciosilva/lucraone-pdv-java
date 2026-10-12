@@ -20,6 +20,15 @@ referências `terminal_provisioning`. O `installation_id` conhecido é enviado n
 recuperação e precisa corresponder ao vínculo do backend. Consulte [Autenticação e sessão](authentication-session.md)
 para monitoramento e recuperação após desbloqueio administrativo.
 
+## Cache de catálogo
+
+A migration Flyway V5 cria tabelas independentes do cadastro comercial para produtos lidos pela API
+autenticada do PDV. As chaves incluem terminal, tenant e empresa. A atualização de produto, preço e
+embalagem recebidos ocorre numa transação; uma falha preserva as páginas e produtos anteriores. A
+ausência numa página não representa exclusão e não remove linhas. Esse cache é apenas dado possivelmente
+desatualizado e nunca autorização para vender offline. Testes de migration usam SQLite temporário; não
+executar `flyway clean` nem apontar testes ao banco operacional.
+
 ## Configuração bootstrap
 
 Arquivo opcional, não secreto, em UTF-8 no formato Java Properties:

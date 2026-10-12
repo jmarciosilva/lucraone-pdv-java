@@ -38,6 +38,10 @@ class LocalDatabaseInitializerTest {
                     connection,
                     "SELECT COUNT(*) FROM \"flyway_schema_history\" WHERE version = '1' AND success = 1"
             ));
+            assertEquals(1, queryInteger(connection,
+                    "SELECT COUNT(*) FROM \"flyway_schema_history\" WHERE version = '5' AND success = 1"));
+            assertEquals(3, queryInteger(connection,
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('pdv_catalog_product','pdv_catalog_sale_price','pdv_catalog_package')"));
         }
     }
 

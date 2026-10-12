@@ -1,6 +1,11 @@
 package br.com.lucraone.pdv.infrastructure.api;
 
 import br.com.lucraone.pdv.application.api.BackendHealth;
+import br.com.lucraone.pdv.application.catalog.BarcodeResolution;
+import br.com.lucraone.pdv.application.catalog.CatalogPackage;
+import br.com.lucraone.pdv.application.catalog.CatalogPage;
+import br.com.lucraone.pdv.application.catalog.CatalogPrice;
+import br.com.lucraone.pdv.application.catalog.CatalogProduct;
 import br.com.lucraone.pdv.application.api.CredentialRotationResult;
 import br.com.lucraone.pdv.application.api.CurrentTerminal;
 import br.com.lucraone.pdv.application.api.MachineCredential;
@@ -18,6 +23,9 @@ import br.com.lucraone.pdv.infrastructure.api.dto.BranchDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.CompanyDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.CredentialDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.CredentialRotationResponseDto;
+import br.com.lucraone.pdv.infrastructure.api.dto.CatalogProductDto;
+import br.com.lucraone.pdv.infrastructure.api.dto.CatalogProductsResponseDto;
+import br.com.lucraone.pdv.infrastructure.api.dto.BarcodeResolutionResponseDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.CredentialRecoveryResponseDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.CredentialLifecycleConfirmResponseDto;
 import br.com.lucraone.pdv.infrastructure.api.dto.CurrentTerminalResponseDto;
@@ -35,9 +43,11 @@ import br.com.lucraone.pdv.infrastructure.api.dto.TerminalDto;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.time.Instant;
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.List;
+import java.util.Optional;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
@@ -109,6 +119,58 @@ final class PdvResponseMapper {
                         required(op.username(), requestId)))
                 .collect(Collectors.toUnmodifiableList());
         return new OperatorListResult(branchId, operators, requestId);
+    }
+
+    CatalogPage catalogProducts(String body, String requestId) {
+        CatalogProductsResponseDto dto = read(body, CatalogProductsResponseDto.class, requestId);
+        CatalogProductsResponseDto.MetaDto meta = required(dto.meta(), requestId);
+        Integer perPage = required(meta.perPage(), requestId);
+        Boolean hasMore = required(meta.hasMore(), requestId);
+        List<CatalogProductDto> rows = required(dto.data(), requestId);
+        try {
+            List<CatalogProduct> products = rows.stream().map(row -> catalogProduct(required(row, requestId), requestId)).toList();
+            return new CatalogPage(products, perPage, meta.nextCursor(), hasMore);
+        } catch (IllegalArgumentException exception) {
+            throw invalidResponse(requestId);
+        }
+    }
+
+    BarcodeResolution barcodeResolution(String body, String requestId, String requestedBarcode) {
+        BarcodeResolutionResponseDto dto = read(body, BarcodeResolutionResponseDto.class, requestId);
+        BarcodeResolutionResponseDto.Data data = required(dto.data(), requestId);
+        CatalogProduct product = catalogProduct(required(data.product(), requestId), requestId);
+        CatalogPackage pack = data.packageValue() == null ? null : catalogPackage(data.packageValue(), requestId);
+        String barcode = required(data.barcode(), requestId);
+        if (barcode.length() > 14 || !barcode.equals(requestedBarcode)) throw invalidResponse(requestId);
+        try {
+            return new BarcodeResolution(barcode, required(data.source(), requestId), required(data.quantity(), requestId),
+                    required(data.unit(), requestId), product, pack);
+        } catch (IllegalArgumentException exception) {
+            throw invalidResponse(requestId);
+        }
+    }
+
+    private CatalogProduct catalogProduct(CatalogProductDto dto, String requestId) {
+        List<CatalogProductDto.SalePriceDto> rawPrices = required(dto.salePrices(), requestId);
+        List<CatalogPrice> prices = rawPrices.stream().map(price -> {
+            try {
+                return new CatalogPrice(new BigDecimal(required(price.amount(), requestId)),
+                        required(price.currency(), requestId));
+            } catch (RuntimeException exception) { throw invalidResponse(requestId); }
+        }).toList();
+        List<CatalogProductDto.PackageDto> rawPackages = required(dto.packages(), requestId);
+        List<CatalogPackage> packages = rawPackages.stream().map(pack -> catalogPackage(pack, requestId)).toList();
+        String barcode = dto.barcode();
+        if (barcode != null && barcode.length() > 14) throw invalidResponse(requestId);
+        return new CatalogProduct(required(dto.id(), requestId), dto.sku(), barcode,
+                required(dto.name(), requestId), required(dto.unit(), requestId),
+                required(dto.status(), requestId), prices, packages, Optional.ofNullable(optionalInstant(dto.updatedAt(), requestId)));
+    }
+
+    private CatalogPackage catalogPackage(CatalogProductDto.PackageDto dto, String requestId) {
+        BigDecimal factor = required(dto.factor(), requestId);
+        if (factor.signum() <= 0 || (dto.barcode() != null && dto.barcode().length() > 14)) throw invalidResponse(requestId);
+        return new CatalogPackage(required(dto.id(), requestId), required(dto.name(), requestId), dto.barcode(), factor);
     }
 
     OperatorLoginResult operatorLogin(String body, String requestId) {

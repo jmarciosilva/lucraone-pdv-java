@@ -1,12 +1,45 @@
 # LucraOne PDV Java — Roadmap
 
 **Data inicial:** 2026-10-07
-**Estado:** Fundação, Fase 2 — Persistência local, Fase 3 — Provisionamento e configuração do terminal e Fase 4 — Contrato e conectividade com a API concluídas. Fase 5 em andamento/parcial, com autenticação do operador bloqueada por contrato backend ausente.
+**Revisado em:** 2026-10-13
+**Estado atual:** Fases 1–4 concluídas; Fases 5–9 parcialmente implementadas; Fases 10–12 planejadas. O detalhe por fase está no [quadro de acompanhamento](#acompanhamento-atual).
 
 **Plataformas-alvo:** Windows, Linux e macOS. O LucraOne PDV Java é um aplicativo Java multiplataforma, não um aplicativo Windows escrito em Java.
 **Commit base:** `bc28f68fe0b05239df7e129ae8cb7f73113ab924`
 
-Este documento registra a direção técnica inicial do PDV. Ele é versionável, mas não substitui decisões de produto, fiscais ou de operação. As fases futuras só começam após aprovação explícita.
+Este documento é a referência de escopo e acompanhamento do PDV. Ele é versionável, mas não substitui decisões de produto, fiscais ou de operação. Mudanças de escopo ou políticas de negócio devem ser registradas antes de alterar os critérios de aceite.
+
+## Acompanhamento atual
+
+Este quadro registra o estado confirmado nos commits abaixo. Atualizar status somente quando houver evidência verificável: código integrado, critérios de aceite cobertos por testes/documentação e, quando necessário, validação operacional. “Implementado” não significa habilitado no ambiente nem pronto para produção.
+
+**Baseline consultada:** PDV Java `1db8e4730ecc3c5668020afdf79773d2a206d210`; backend Laravel `fe20d35e78d76afdcbe37768a48f30fb931f69cc` (branch `main`).
+
+**Legenda:** ✅ concluída no escopo e com aceite verificado; 🟡 parcial, com entregas ou aceite pendentes; ⛔ bloqueada por dependência externa identificada; ⏳ planejada. Ativação em ambiente é acompanhada separadamente do estado do código.
+
+| Fase | Estado | Implementado | Falta para concluir |
+| --- | --- | --- | --- |
+| 1. Fundação | ✅ Concluída | Aplicação JavaFX, camadas e build | — |
+| 2. Persistência local | ✅ Concluída | SQLite, Flyway e transações | — |
+| 3. Provisionamento | ✅ Concluída | Identidade/configuração do terminal | — |
+| 4. API base | ✅ Concluída | HTTPS, pareamento, terminal, erros e contratos | — |
+| 5. Sessão operacional | 🟡 Parcial | Machine credential e sessão do operador no Java/Laravel | Keychain em macOS e validação real das plataformas-alvo |
+| 6. Catálogo/preços | 🟡 Parcial | Busca/cache e entrega de snapshots versionados com aplicação atômica | Ativação controlada, visibilidade de validade/estado no PDV e política de preço offline |
+| 7. Vendas | 🟡 Parcial | Domínio/persistência locais e outbox atômica; janela atual é DEMO isolada | Autorização/wiring operacional, ingestão idempotente no Laravel, baixa de estoque e confirmação/reconciliação |
+| 8. Pagamento/caixa | 🟡 Parcial | Dinheiro, cartão e Pix declarados manualmente; troco | Múltiplos pagamentos e ciclo de caixa; TEF continua fora do MVP |
+| 9. Sincronização | 🟡 Parcial | Transferência confiável de catálogo | Envio/retentativa/recovery de vendas e relatórios sem duplicidade |
+| 10. Periféricos | ⏳ Planejada | — | Scanner, impressora e demais dispositivos aprovados |
+| 11. Distribuição | ⏳ Planejada | — | Empacotamento e atualização por plataforma |
+| 12. Fiscal | ⏳ Planejada | — | Escopo fiscal e homologação aprovados |
+
+### Próximo incremento recomendado
+
+1. Habilitar e validar a carga de catálogo em desenvolvimento/homologação, confirmando ability da credencial, versão ativa e estado visível no PDV.
+2. Formalizar no contrato Laravel a recepção idempotente de uma venda PDV já concluída offline.
+3. Persistir a venda uma única vez, movimentar estoque uma única vez e incluí-la nos relatórios de faturamento diário, semanal e mensal usando a data/hora original da venda.
+4. Implementar no Java o envio durável da outbox, repetindo a mesma identidade da venda após timeout e marcando sincronização somente após confirmação do backend.
+
+**Decisão de produto registrada em 2026-10-13:** uma venda PDV concluída offline deve, quando sincronizada, ser registrada no Laravel, baixar o estoque e compor o faturamento diário/semanal/mensal. Ainda precisa ser definida a regra para estoque insuficiente no momento do sync. A proposta técnica é tratar a venda PDV como transação concluída própria e conectá-la aos relatórios, sem convertê-la em pedido web em aberto; confirmar a representação técnica durante o contrato de ingestão.
 
 ## Visão de arquitetura
 
@@ -240,7 +273,7 @@ Testes devem começar cedo com unidade para domínio e aplicação, integração
 - Linux possui PlatformPaths, SecretStore baseado em libsecret/Secret Service e SQLite/Flyway validados em runtime real.
 - macOS possui PlatformPaths e comportamento fail-secure, mas a integração real com Keychain ainda não foi implementada nem validada em host macOS.
 - Portanto, macOS **NÃO está pronto para persistência de machine credential**.
-- A Fase 5 evolui em Windows/Linux com persistência segura; está **EM ANDAMENTO / PARCIAL**, com operador ainda pendente.
+- A Fase 5 evolui em Windows/Linux com persistência segura; está **EM ANDAMENTO / PARCIAL** por conta do suporte pendente a macOS e da validação completa das plataformas.
 - Suporte completo de persistência segura no macOS depende da implementação e validação do Keychain em host macOS.
 
 ### Fase 5 — Autenticação e sessão operacional
@@ -264,22 +297,27 @@ Testes devem começar cedo com unidade para domínio e aplicação, integração
 - remoção local da credencial, política de re-pairing e rotação segura com falhas explícitas;
 - UI mínima assíncrona e testes unitários/de integração, sem pairing real.
 
-**Pendente / bloqueado:** autenticação do operador e sessão operacional completa do operador.
-**Motivo:** **Operator authentication backend contract unavailable** — os únicos endpoints aprovados continuam health, pair e current terminal. Nenhum login local, senha persistida ou endpoint foi criado.
+**Concluído no fluxo de operador (Java e Laravel):** consulta de operadores elegíveis, login, recuperação da própria sessão após resposta perdida, consulta, revalidação, logout e credencial operacional protegida no Java. O contrato está em [Autenticação e sessão](docs/authentication-session.md) e [Contrato da API](docs/api-contract.md); as rotas correspondentes existem no módulo PDV Laravel.
 
-Para concluir a Fase 5, o backend deve aprovar método/path, payload, identidade/contexto do operador, credencial e expiração da sessão, erros, reautenticação, logout/revogação e política offline. Não se presume nenhum desses campos ou protocolos. Detalhes em [Autenticação e sessão](docs/authentication-session.md).
+**Pendente para concluir a Fase 5:** Keychain implementado e validado em macOS. A política offline e a validação multiplataforma também devem permanecer explícitas; uma sessão de operador não concede por si só autorização comercial para venda.
 
-macOS permanece plataforma-alvo, **bloqueado para persistência de credenciais até Keychain real validado**. Windows foi testado sinteticamente neste host Linux; não se declara runtime Windows validado nesta rodada. A Fase 6 **NÃO foi iniciada**.
+macOS permanece plataforma-alvo, **bloqueado para persistência de credenciais até Keychain real validado**. Windows foi testado sinteticamente neste host Linux; não se declara runtime Windows validado nesta rodada.
 
 ### Fase 6 — Catálogo e preços locais
+
+**PARCIALMENTE IMPLEMENTADA — ativação operacional pendente**
 
 - **Objetivo:** disponibilizar dados de venda consistentes no terminal.
 - **Entregas:** cache de produtos, preço versionado, pull incremental, busca e indicadores de atualização.
 - **Fora de escopo:** baixa de estoque e fechamento comercial.
 - **Aceite:** catálogo pode ser atualizado, consultado localmente e sua validade é visível.
-- **Dependências:** Fases 2, 4 e 5; contrato de delta sync.
+- **Dependências:** Fases 2, 4 e 5; contrato de snapshot de catálogo existente. Delta sync/tombstones continuam pendentes para substituir snapshots como mecanismo de atualização.
+
+Busca autenticada, cache local escopado e distribuição de snapshots versionados com checkpoint, checksum e ativação atômica foram implementados. A distribuição por snapshot não é delta sync. Para receber uma carga, o backend precisa ter a distribuição habilitada e a credencial do terminal precisa da ability correspondente; no Java, a chamada também exige `-Dlucraone.pdv.catalog-distribution.enabled=true`. Nenhum desses opt-ins deve ser habilitado em produção sem validação operacional. Indicador de estado/validade no fluxo de caixa e política de cache/preço offline permanecem pendentes.
 
 ### Fase 7 — Núcleo transacional de vendas
+
+**NÚCLEO LOCAL IMPLEMENTADO — INTEGRAÇÃO BACKEND PENDENTE**
 
 - **Objetivo:** registrar venda local com consistência e auditoria.
 - **Entregas:** venda, itens, validações aprovadas, UUID, preço aplicado, outbox e testes de atomicidade.
@@ -287,7 +325,11 @@ macOS permanece plataforma-alvo, **bloqueado para persistência de credenciais a
 - **Aceite:** queda do processo não produz venda parcialmente gravada; reenvio não duplica evento.
 - **Dependências:** Fases 2, 5 e 6; regras comerciais aprovadas.
 
+O domínio, a persistência atômica e eventos na outbox estão implementados e cobertos por testes. A janela JavaFX existente é uma DEMO isolada, com autorização simulada e SQLite temporário; não está integrada ao runtime operacional. O provedor de autorização comercial padrão nega operações e o serviço de vendas ainda não foi ligado ao runtime operacional. A outbox ainda não é despachada. O Laravel não possui rota específica de recebimento de venda do PDV nem contrato de idempotência para ela. As rotas genéricas de pedidos não foram consideradas equivalentes: seguem outro contexto de autenticação e fluxo de estoque/status.
+
 ### Fase 8 — Pagamentos e caixa
+
+**PARCIALMENTE IMPLEMENTADA**
 
 - **Objetivo:** tratar pagamentos e a operação de caixa sem misturá-los à venda.
 - **Entregas:** dinheiro, PIX, múltiplas formas, troco, sessão de caixa, abertura, sangria e fechamento.
@@ -295,13 +337,19 @@ macOS permanece plataforma-alvo, **bloqueado para persistência de credenciais a
 - **Aceite:** totais e estados de venda/pagamento/caixa são reconciliáveis.
 - **Dependências:** Fase 7 e regras financeiras da operação.
 
+Dinheiro, débito, crédito e Pix com confirmação manual auditável fazem parte do núcleo local. TEF, pagamentos múltiplos por venda e sessão/abertura/sangria/fechamento de caixa continuam pendentes.
+
 ### Fase 9 — Sincronização e resiliência offline — endurecimento
+
+**INICIADA PARCIALMENTE**
 
 - **Objetivo:** endurecer o mecanismo que começa gradualmente nas fases anteriores, tornando o fluxo local resiliente a falhas de conectividade.
 - **Entregas:** retry/backoff, recovery, tratamento de resposta perdida, conflitos, full sync controlado, observabilidade de sync, testes de falha e reconciliação. A Fase 4 define contrato/API; a Fase 6 já faz pull de catálogo/preços; a Fase 7 cria a outbox de venda; e a Fase 8 gera eventos de pagamento/caixa quando aplicável.
 - **Fora de escopo:** multi-terminal compartilhando SQLite.
 - **Aceite:** cenários de queda, reenvio, resposta perdida e reconciliação passam em testes automatizados.
 - **Dependências:** Fases 4, 6, 7 e 8; idempotência suportada pelo backend.
+
+O protocolo de recebimento e aplicação de cargas de catálogo existe. O transporte/recuperação de eventos de venda ainda depende do contrato de ingestão idempotente no Laravel. A proposta é registrar a venda PDV concluída como transação própria, ligada ao terminal e ao operador, e agregá-la aos relatórios existentes sem duplicar pedidos web. A baixa de estoque precisa ser atômica com a aceitação idempotente, ou possuir mecanismo de recuperação equivalente.
 
 ### Fase 10 — Periféricos
 
@@ -394,13 +442,21 @@ macOS permanece plataforma-alvo, **bloqueado para persistência de credenciais a
 - Arquitetura multi-terminal com SQLite em rede.
 - Integrações não necessárias ao núcleo inicial de PDV.
 
-## Pontos a verificar no backend antes da integração
+## Contratos e verificações para a integração
 
-- autenticação de operador e vínculo com terminal/filial;
-- endpoints e permissões para provisionamento, catálogo, preço, cliente, venda e pagamento;
-- idempotência persistente por chave e retorno de resultado prévio;
-- versionamento de API, DTOs, paginação, cursor/delta sync e timestamps em UTC;
-- `deleted_at` ou outro mecanismo de remoção propagável;
-- versão de recurso/ETag para conflitos;
-- política de estoque, preço offline e reconciliação;
-- limites de payload, rate limit, observabilidade e ambiente de homologação.
+### Confirmado nos repositórios consultados
+
+- Laravel tem sessão de operador e endpoints para consulta de catálogo e entrega versionada de cargas.
+- A distribuição de catálogo requer a ability de máquina `pdv:catalog:distribution`; o Java só inicia a consulta quando `lucraone.pdv.catalog-distribution.enabled=true`, e a flag do backend permanece desligada por padrão.
+- O `POST /api/v1/orders` atual pertence ao fluxo genérico de pedidos: usa outro middleware/contexto, cria pedido em estado inicial e aplica efeitos de estoque por transições posteriores. Ele não implementa ingestão idempotente de venda PDV.
+- Os relatórios de faturamento atuais usam pedidos enviados/concluídos. Vendas PDV precisam entrar na agregação uma única vez pela data/hora da venda, não pela hora tardia do sync.
+- O serviço atual de estoque recusa uma saída que deixaria saldo negativo. A venda offline já concluída não pode ser descartada se essa validação falhar no sync.
+
+### Pendências antes de habilitar uso operacional
+
+- Contrato versionado de recebimento de venda, autenticado por terminal e sessão/política de operador, com identidade estável (`sale_id`/idempotency key), versão do payload e resposta reproduzível em retentativas.
+- Campos e validações para terminal, filial, operador, data/hora original, moeda, totais, itens, preço praticado e confirmação manual de pagamento. O backend deve preservar o snapshot da venda; não deve cobrar novamente nem reprecificar silenciosamente uma venda concluída.
+- Transação idempotente que registra venda, movimentos de saída de estoque e dados necessários aos relatórios; nenhum efeito financeiro ou de estoque pode ser duplicado por retry.
+- Política de exceção quando o saldo atual for menor que a quantidade já vendida offline: permitir saldo negativo/auditar divergência ou registrar a venda e encaminhar a baixa para reconciliação. A regra atual rejeita a baixa.
+- Máquina de estados da outbox, backoff, recuperação após queda, confirmação do backend, consulta/resolução de conflitos e indicação visível de pendências ao operador.
+- Ambiente de homologação e procedimento aprovado para habilitar a distribuição de catálogo e validar a primeira carga, incluindo credencial com ability adequada. Não habilitar a flag de produção como parte de desenvolvimento local.

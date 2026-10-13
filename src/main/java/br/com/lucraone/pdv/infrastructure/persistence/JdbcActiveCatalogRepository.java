@@ -17,6 +17,29 @@ public final class JdbcActiveCatalogRepository implements ActiveCatalogRepositor
     private final JdbcTransactionManager transactions;
     public JdbcActiveCatalogRepository(JdbcTransactionManager transactions) { this.transactions = Objects.requireNonNull(transactions); }
 
+    @Override public Optional<CatalogProduct> findById(CatalogCacheContext context, String productId) {
+        Objects.requireNonNull(context); Objects.requireNonNull(productId);
+        if (productId.isBlank()) throw new IllegalArgumentException("productId must not be blank");
+        return transactions.inTransaction((c, tx) -> {
+            Optional<Long> version = activeVersion(c, context);
+            if (version.isEmpty()) return Optional.empty();
+            try (PreparedStatement s = c.prepareStatement("""
+                    SELECT product_id, sku, barcode, name, unit, status, updated_at
+                    FROM pdv_catalog_snapshot_product
+                    WHERE terminal_id=? AND tenant_id=? AND company_id=? AND version=? AND product_id=?
+                    """)) {
+                bindContext(s, context, 1);
+                s.setLong(4, version.orElseThrow());
+                s.setString(5, productId);
+                try (ResultSet r = s.executeQuery()) {
+                    if (!r.next()) return Optional.empty();
+                    ProductRow row = productRow(r);
+                    return Optional.of(loadProducts(c, context, version.orElseThrow(), List.of(row)).getFirst());
+                }
+            }
+        });
+    }
+
     @Override public CatalogPage search(CatalogCacheContext context, String search, int perPage, String cursor) {
         Objects.requireNonNull(context); Objects.requireNonNull(search);
         if (perPage < 1 || perPage > 100) throw new IllegalArgumentException("perPage must be between 1 and 100");

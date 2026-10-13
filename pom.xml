@@ -122,6 +122,21 @@
                 </plugins>
             </build>
         </profile>
+        <profile>
+            <id>sales-demo</id>
+            <activation><activeByDefault>false</activeByDefault></activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.openjfx</groupId>
+                        <artifactId>javafx-maven-plugin</artifactId>
+                        <configuration>
+                            <mainClass>br.com.lucraone.pdv.presentation.demo.SaleDemoApplication</mainClass>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
 
 </project>

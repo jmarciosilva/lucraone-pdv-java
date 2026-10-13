@@ -1,0 +1,40 @@
+.demo-page {
+    -fx-background-color: #f3f5fa;
+    -fx-font-family: "Segoe UI", sans-serif;
+}
+.demo-header {
+    -fx-background-color: #181537;
+    -fx-padding: 20 24 18 24;
+}
+.demo-brand {
+    -fx-text-fill: white;
+    -fx-font-size: 24px;
+    -fx-font-weight: bold;
+}
+.demo-banner {
+    -fx-background-color: #f5c842;
+    -fx-background-radius: 6;
+    -fx-padding: 7 11 7 11;
+    -fx-text-fill: #272047;
+    -fx-font-weight: bold;
+    -fx-font-size: 11px;
+}
+.demo-card {
+    -fx-background-color: white;
+    -fx-background-radius: 12;
+    -fx-padding: 16;
+    -fx-effect: dropshadow(gaussian, rgba(18, 16, 48, 0.08), 14, 0.15, 0, 3);
+}
+.demo-title {
+    -fx-text-fill: #211d47;
+    -fx-font-size: 17px;
+    -fx-font-weight: bold;
+}
+.demo-note {
+    -fx-text-fill: #6a6681;
+    -fx-font-size: 12px;
+}
+.demo-status {
+    -fx-text-fill: #403b62;
+    -fx-font-size: 13px;
+}

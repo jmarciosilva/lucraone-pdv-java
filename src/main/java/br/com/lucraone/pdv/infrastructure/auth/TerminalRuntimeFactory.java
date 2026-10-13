@@ -2,6 +2,7 @@ package br.com.lucraone.pdv.infrastructure.auth;
 
 import br.com.lucraone.pdv.application.auth.CredentialRotationService;
 import br.com.lucraone.pdv.application.auth.CredentialRecoveryService;
+import br.com.lucraone.pdv.application.auth.CredentialRenewalService;
 import br.com.lucraone.pdv.application.auth.TerminalAuthenticationService;
 import br.com.lucraone.pdv.application.auth.TerminalHeartbeatService;
 import br.com.lucraone.pdv.application.operator.OperatorSessionService;
@@ -62,7 +63,10 @@ public final class TerminalRuntimeFactory {
         Optional<TerminalHeartbeatService> heartbeat = gateway.map(gw -> new TerminalHeartbeatService(gw,
                 authentication::loadStoredCredential, authentication::restore, java.time.Duration.ofSeconds(
                         Math.max(5, Long.getLong("lucraone.pdv.heartbeat-seconds", 30L)))));
+        Optional<CredentialRenewalService> renewalService = rotationService.map(
+                rs -> new CredentialRenewalService(rs, authentication::loadStoredCredential,
+                        clock, CredentialRenewalService.DEFAULT_LEAD_TIME, worker));
         return new TerminalRuntime(authentication, gateway.isPresent(), gateway, operatorService, rotationService, recoveryService,
-                catalogService, distributionService, heartbeat);
+                renewalService, catalogService, distributionService, heartbeat);
     }
 }

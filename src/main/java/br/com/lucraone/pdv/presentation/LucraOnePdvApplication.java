@@ -548,6 +548,7 @@ public class LucraOnePdvApplication extends Application {
             if (authenticated) {
                 authorizationDenied = false;
                 snapshot.expiresAt().ifPresent(this::scheduleExpiry);
+                snapshot.expiresAt().ifPresent(exp -> runtime.renewal().ifPresent(r -> r.scheduleFor(exp)));
                 loadMachineCredentialAsync();
                 startAuthorizationMonitor();
                 goToOperatorLogin();
@@ -594,6 +595,7 @@ public class LucraOnePdvApplication extends Application {
             terminalAuthorizationValid = true;
             runtime.heartbeat().ifPresent(service -> service.setAuthorized(true));
             synchronizeCatalogWhenOptedIn();
+            snapshot.expiresAt().ifPresent(exp -> runtime.renewal().ifPresent(r -> r.scheduleFor(exp)));
             if (authorizationDenied || currentScreen == suspendedScreen) {
                 authorizationDenied = false;
                 runtime.operator().ifPresent(service -> service.invalidateLocal());

@@ -183,6 +183,38 @@ class SaleServiceTest {
     }
 
     @Test
+    void confirmsMealAndFoodVouchersThroughExplicitManualDeclarations() {
+        CreateSaleCommand meal = new CreateSaleCommand(UUID.randomUUID(), List.of(line("p-1", "1", "0.00")),
+                money("0.00"), PaymentMethod.MEAL_VOUCHER, money("9.50"),
+                ManualPaymentDeclaration.EXTERNAL_VOUCHER_APPROVED);
+        Sale mealSale = service.createConfirmedSale(meal);
+        assertEquals(PaymentMethod.MEAL_VOUCHER, mealSale.payment().method());
+        assertEquals(br.com.lucraone.pdv.domain.sale.PaymentConfirmationOrigin.MANUAL,
+                mealSale.payment().confirmationOrigin());
+
+        CreateSaleCommand food = new CreateSaleCommand(UUID.randomUUID(), List.of(line("p-1", "1", "0.00")),
+                money("0.00"), PaymentMethod.FOOD_VOUCHER, money("9.50"),
+                ManualPaymentDeclaration.EXTERNAL_VOUCHER_APPROVED);
+        assertEquals(PaymentMethod.FOOD_VOUCHER, service.createConfirmedSale(food).payment().method());
+        assertEquals(0, electronicPaymentsCalls);
+    }
+
+    @Test
+    void voucherWithoutExplicitManualDeclarationIsUnavailable() {
+        CreateSaleCommand meal = command(PaymentMethod.MEAL_VOUCHER, List.of(line("p-1", "1", "0.00")), "9.50");
+        assertThrows(IllegalStateException.class, () -> service.createConfirmedSale(meal));
+        assertTrue(sales.persisted.isEmpty());
+    }
+
+    @Test
+    void voucherRequiresPaymentAmountEqualToTotal() {
+        CreateSaleCommand meal = new CreateSaleCommand(UUID.randomUUID(), List.of(line("p-1", "1", "0.00")),
+                money("0.00"), PaymentMethod.MEAL_VOUCHER, money("10.00"),
+                ManualPaymentDeclaration.EXTERNAL_VOUCHER_APPROVED);
+        assertThrows(IllegalArgumentException.class, () -> service.createConfirmedSale(meal));
+    }
+
+    @Test
     void requestCannotSupplyOrManipulateUnitPrice() {
         Sale sale = service.createConfirmedSale(command(List.of(line("p-1", "1", "0.00")), "9.50"));
         assertEquals("9.50", sale.items().getFirst().unitPrice().toPlainString());

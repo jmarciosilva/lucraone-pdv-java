@@ -4,5 +4,6 @@ package br.com.lucraone.pdv.application.sale;
 public enum ManualPaymentDeclaration {
     CASH_RECEIVED,
     EXTERNAL_CARD_APPROVED,
-    PIX_OFFICIAL_CHANNEL_CHECKED
+    PIX_OFFICIAL_CHANNEL_CHECKED,
+    EXTERNAL_VOUCHER_APPROVED
 }

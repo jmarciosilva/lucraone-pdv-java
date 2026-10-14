@@ -31,6 +31,13 @@ public final class OfflineCatalogQueryService {
         return CompletableFuture.supplyAsync(() -> catalog.resolveBarcode(currentContext(), barcode), worker);
     }
 
+    /** Active snapshot metadata for the operator-facing catalog indicator; empty when none is verified or active. */
+    public CompletableFuture<Optional<ActiveCatalogInfo>> activeCatalogInfo() {
+        return CompletableFuture.supplyAsync(() -> contextSupplier.get()
+                .map(CatalogCacheContext::from)
+                .flatMap(catalog::activeCatalogInfo), worker);
+    }
+
     private CatalogCacheContext currentContext() {
         return contextSupplier.get().map(CatalogCacheContext::from)
                 .orElseThrow(() -> new IllegalStateException("Authenticated terminal context is unavailable."));

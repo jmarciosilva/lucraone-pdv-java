@@ -149,6 +149,24 @@ class JdbcSaleRepositoryTest {
     }
 
     @Test
+    void persistsMealVoucherSaleWithManualAttemptModalityAndOutbox() throws SQLException {
+        List<SaleItem> items = List.of(item(1, "p1", "Produto", "1", "10.00"));
+        Sale voucher = Sale.confirm(SALE_ID, "terminal-1", "tenant-1", "company-1", "branch-1",
+                "operator-1", "Operador", BRL, items, money("0.00"),
+                new SalePayment(PaymentMethod.MEAL_VOUCHER, money("10.00"), money("0.00"),
+                        PaymentConfirmationOrigin.MANUAL), CONFIRMED_AT);
+
+        repository.saveConfirmed(voucher);
+
+        assertEquals("MEAL_VOUCHER", scalar("SELECT payment_method FROM pdv_sale WHERE sale_id = '" + SALE_ID + "'"));
+        assertEquals("EXTERNAL_VOUCHER_APPROVED",
+                scalar("SELECT declaration_type FROM pdv_manual_payment_attempt WHERE sale_id = '" + SALE_ID + "'"));
+        assertEquals("COMPLETED",
+                scalar("SELECT state FROM pdv_manual_payment_attempt WHERE sale_id = '" + SALE_ID + "'"));
+        assertEquals(1, countEvent("SALE_CONFIRMED"));
+    }
+
+    @Test
     void inconsistentStoredLineIsRejectedOnRead() throws SQLException {
         repository.saveConfirmed(sale(SALE_ID, List.of(item(1, "p1", "Produto", "1", "10.00"))));
         try (Connection connection = connections.openConnection(); Statement statement = connection.createStatement()) {

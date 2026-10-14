@@ -161,20 +161,30 @@ public final class SaleService {
 
         if (command.paymentMethod() != PaymentMethod.CARD_DEBIT
                 && command.paymentMethod() != PaymentMethod.CARD_CREDIT
-                && command.paymentMethod() != PaymentMethod.PIX) {
+                && command.paymentMethod() != PaymentMethod.PIX
+                && command.paymentMethod() != PaymentMethod.MEAL_VOUCHER
+                && command.paymentMethod() != PaymentMethod.FOOD_VOUCHER) {
             throw new IllegalStateException("This payment method has no verifiable authorization contract.");
         }
         if (command.paymentAmount().amount().compareTo(total.amount()) != 0) {
             throw new IllegalArgumentException("Manual payment amount must equal the sale total.");
         }
-        ManualPaymentDeclaration expected = command.paymentMethod() == PaymentMethod.PIX
-                ? ManualPaymentDeclaration.PIX_OFFICIAL_CHANNEL_CHECKED
-                : ManualPaymentDeclaration.EXTERNAL_CARD_APPROVED;
+        ManualPaymentDeclaration expected = expectedManualDeclaration(command.paymentMethod());
         if (command.manualDeclaration() != expected) {
             throw new IllegalStateException("An explicit method-specific manual payment declaration is required.");
         }
         return new SalePayment(command.paymentMethod(), total, Money.zero(total.currency()),
                 PaymentConfirmationOrigin.MANUAL);
+    }
+
+    /** Maps each external manual payment method to the explicit declaration the operator must make. */
+    private static ManualPaymentDeclaration expectedManualDeclaration(PaymentMethod method) {
+        return switch (method) {
+            case PIX -> ManualPaymentDeclaration.PIX_OFFICIAL_CHANNEL_CHECKED;
+            case CARD_DEBIT, CARD_CREDIT -> ManualPaymentDeclaration.EXTERNAL_CARD_APPROVED;
+            case MEAL_VOUCHER, FOOD_VOUCHER -> ManualPaymentDeclaration.EXTERNAL_VOUCHER_APPROVED;
+            case CASH, OTHER -> throw new IllegalStateException("Not an external manual payment method: " + method);
+        };
     }
 
     private AuthorizedSaleContext currentContext(SaleAuthorizationAction action) {

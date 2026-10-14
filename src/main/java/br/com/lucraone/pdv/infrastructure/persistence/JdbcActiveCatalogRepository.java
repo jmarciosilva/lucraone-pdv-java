@@ -100,6 +100,27 @@ public final class JdbcActiveCatalogRepository implements ActiveCatalogRepositor
         });
     }
 
+    @Override public Optional<ActiveCatalogInfo> activeCatalogInfo(CatalogCacheContext context) {
+        Objects.requireNonNull(context);
+        return transactions.inTransaction((c, tx) -> {
+            try (PreparedStatement s = c.prepareStatement("""
+                    SELECT a.version, a.activated_at, v.product_count
+                    FROM pdv_catalog_snapshot_active a
+                    JOIN pdv_catalog_snapshot_version v
+                      ON v.terminal_id=a.terminal_id AND v.tenant_id=a.tenant_id
+                         AND v.company_id=a.company_id AND v.version=a.version
+                    WHERE a.terminal_id=? AND a.tenant_id=? AND a.company_id=?
+                    """)) {
+                bindContext(s, context, 1);
+                try (ResultSet r = s.executeQuery()) {
+                    if (!r.next()) return Optional.<ActiveCatalogInfo>empty();
+                    return Optional.of(new ActiveCatalogInfo(
+                            r.getLong(1), Instant.parse(r.getString(2)), r.getInt(3)));
+                }
+            }
+        });
+    }
+
     private Optional<Long> activeVersion(Connection c,CatalogCacheContext context) throws SQLException {
         try(PreparedStatement s=c.prepareStatement("SELECT version FROM pdv_catalog_snapshot_active WHERE terminal_id=? AND tenant_id=? AND company_id=?")){
             bindContext(s,context,1); try(ResultSet r=s.executeQuery()){ return r.next()?Optional.of(r.getLong(1)):Optional.empty(); }

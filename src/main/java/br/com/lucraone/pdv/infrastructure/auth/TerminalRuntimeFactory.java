@@ -8,6 +8,9 @@ import br.com.lucraone.pdv.application.auth.TerminalHeartbeatService;
 import br.com.lucraone.pdv.application.operator.OperatorSessionService;
 import br.com.lucraone.pdv.application.catalog.CatalogDistributionService;
 import br.com.lucraone.pdv.application.catalog.OfflineCatalogQueryService;
+import br.com.lucraone.pdv.application.sale.ElectronicPaymentAuthorizer;
+import br.com.lucraone.pdv.application.sale.OperatorTerminalSaleAuthorizationProvider;
+import br.com.lucraone.pdv.application.sale.SaleService;
 import br.com.lucraone.pdv.infrastructure.api.NdjsonCatalogSnapshotDecoder;
 import br.com.lucraone.pdv.domain.terminal.Installation;
 import br.com.lucraone.pdv.infrastructure.api.HttpPdvBackendGateway;
@@ -54,9 +57,9 @@ public final class TerminalRuntimeFactory {
         Optional<CredentialRecoveryService> recoveryService = gateway.map(
                 gw -> new CredentialRecoveryService(credentials, candidateCredentials, recoveryProofs, gw,
                         authentication, clock, worker));
+        var activeCatalog = new JdbcActiveCatalogRepository(transactions);
         Optional<OfflineCatalogQueryService> catalogService = Optional.of(
-                new OfflineCatalogQueryService(new JdbcActiveCatalogRepository(transactions),
-                        authentication::lastVerifiedContext, worker));
+                new OfflineCatalogQueryService(activeCatalog, authentication::lastVerifiedContext, worker));
         var deliveryRepository = new JdbcCatalogDeliveryRepository(transactions);
         Optional<CatalogDistributionService> distributionService = gateway.map(
                 gw -> new CatalogDistributionService(gw, deliveryRepository, new NdjsonCatalogSnapshotDecoder(), clock, worker));
@@ -66,7 +69,24 @@ public final class TerminalRuntimeFactory {
         Optional<CredentialRenewalService> renewalService = rotationService.map(
                 rs -> new CredentialRenewalService(rs, authentication::loadStoredCredential,
                         clock, CredentialRenewalService.DEFAULT_LEAD_TIME, worker));
+        // Operational sales reuse the same transaction manager (venda + itens + outbox are one SQLite
+        // transaction). Authorization derives only from the verified terminal context, a non-expired
+        // machine credential and the live operator session; no backend ability, no simulated identity.
+        Optional<SaleService> saleService = operatorService.map(operator -> {
+            var authorization = new OperatorTerminalSaleAuthorizationProvider(
+                    authentication::lastVerifiedContext,
+                    () -> {
+                        try {
+                            return authentication.loadStoredCredential();
+                        } catch (RuntimeException unavailable) {
+                            return null;
+                        }
+                    },
+                    operator::snapshot, clock, "BRL");
+            return new SaleService(new JdbcSaleRepository(transactions), activeCatalog, authorization,
+                    ElectronicPaymentAuthorizer.unavailable(), clock);
+        });
         return new TerminalRuntime(authentication, gateway.isPresent(), gateway, operatorService, rotationService, recoveryService,
-                renewalService, catalogService, distributionService, heartbeat);
+                renewalService, catalogService, distributionService, heartbeat, saleService);
     }
 }

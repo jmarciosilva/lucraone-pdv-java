@@ -12,9 +12,14 @@ import br.com.lucraone.pdv.application.api.OperatorInfo;
 import br.com.lucraone.pdv.application.api.OperatorLoginCommand;
 import br.com.lucraone.pdv.application.api.PdvApiException;
 import br.com.lucraone.pdv.application.api.PdvFailureKind;
+import br.com.lucraone.pdv.application.catalog.ActiveCatalogInfo;
 import br.com.lucraone.pdv.application.catalog.CatalogProduct;
 import br.com.lucraone.pdv.application.catalog.CatalogPrice;
 import br.com.lucraone.pdv.application.catalog.CatalogCacheContext;
+import br.com.lucraone.pdv.application.sale.ManualPaymentDeclaration;
+import br.com.lucraone.pdv.domain.sale.Money;
+import br.com.lucraone.pdv.domain.sale.PaymentMethod;
+import br.com.lucraone.pdv.domain.sale.Sale;
 import br.com.lucraone.pdv.infrastructure.auth.TerminalRuntime;
 import br.com.lucraone.pdv.infrastructure.auth.TerminalRuntimeFactory;
 import java.time.Instant;
@@ -25,9 +30,11 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Supplier;
+import java.math.BigDecimal;
 import java.text.NumberFormat;
 import java.util.Locale;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletionException;
 import javafx.animation.PauseTransition;
 import javafx.application.Application;
@@ -44,6 +51,10 @@ import javafx.scene.control.TextField;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.SelectionMode;
+import javafx.scene.control.ButtonBar;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.CheckBox;
+import javafx.scene.control.Dialog;
 import javafx.collections.FXCollections;
 import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.scene.layout.HBox;
@@ -121,6 +132,17 @@ public class LucraOnePdvApplication extends Application {
     private volatile String catalogCurrentQuery = "";
     private volatile String catalogNextCursor;
     private final Label cashierClock = new Label();
+
+    // ── Current sale (cart) ───────────────────────────────────────────────────
+    private volatile OperationalSalesCart cart;
+    private final TableView<OperationalSalesCart.CartLine> cartTable = new TableView<>();
+    private final Button addToCartButton = new Button("Adicionar ao carrinho");
+    private final Button removeFromCartButton = new Button("Remover item");
+    private final Button finalizeSaleButton = new Button("Finalizar venda");
+    private final Label saleSubtotalValue = new Label("R$ 0,00");
+    private final Label saleTotalValue = new Label("R$ 0,00");
+    private final Label cartStatus = new Label("Sem itens na venda.");
+    private final Label catalogVersionLabel = new Label("Catálogo local: verificando…");
 
     // ── Root ─────────────────────────────────────────────────────────────────
     private final VBox root = new VBox(0);
@@ -332,31 +354,80 @@ public class LucraOnePdvApplication extends Application {
         });
         catalogResults.setMinHeight(150);
         catalogResults.setPrefHeight(350);
-        VBox productHeader = new VBox(4, eyebrow("OPERAÇÃO DO CAIXA"), cashierTitle,
-                body("Leitura de produtos disponível em breve."));
+        catalogVersionLabel.getStyleClass().add("muted-text");
+        catalogVersionLabel.setWrapText(true);
+        VBox productHeader = new VBox(4, eyebrow("OPERAÇÃO DO CAIXA"), cashierTitle, catalogVersionLabel);
         HBox catalogSearchRow = new HBox(10, productEntryPlaceholder, catalogSearchButton, catalogBarcodeButton);
         HBox.setHgrow(productEntryPlaceholder, Priority.ALWAYS);
+        addToCartButton.getStyleClass().add("button-primary");
+        addToCartButton.setMaxWidth(Double.MAX_VALUE);
+        addToCartButton.disableProperty().bind(catalogResults.getSelectionModel().selectedItemProperty().isNull());
+        addToCartButton.setOnAction(event -> addSelectedProductToCart());
+        catalogResults.setOnMouseClicked(event -> { if (event.getClickCount() == 2) addSelectedProductToCart(); });
         VBox catalogArea = new VBox(10, eyebrow("CONSULTA DE CATÁLOGO"), catalogSearchRow,
-                catalogStatus, catalogResults, catalogProductDetails, catalogNextPageButton);
+                catalogStatus, catalogResults, catalogProductDetails, addToCartButton, catalogNextPageButton);
         catalogArea.getStyleClass().add("catalog-area");
         VBox.setVgrow(catalogResults, Priority.ALWAYS);
         VBox saleArea = new VBox(catalogArea);
         saleArea.getStyleClass().addAll("surface-card", "sale-area");
         VBox.setVgrow(catalogArea, Priority.ALWAYS);
 
-        VBox saleSummary = new VBox(18,
-                eyebrow("RESUMO DA VENDA"),
-                summaryBlock("SUBTOTAL", "R$ 0,00"),
-                summaryBlock("DESCONTO", "R$ 0,00"),
+        cartTable.getSelectionModel().setSelectionMode(SelectionMode.SINGLE);
+        cartTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+        cartTable.setPlaceholder(new Label("Sem itens na venda"));
+        TableColumn<OperationalSalesCart.CartLine, String> cartProductColumn = new TableColumn<>("Produto");
+        cartProductColumn.setCellValueFactory(cell -> new ReadOnlyStringWrapper(cell.getValue().product().name()));
+        TableColumn<OperationalSalesCart.CartLine, String> cartQuantityColumn = new TableColumn<>("Qtd");
+        cartQuantityColumn.setCellValueFactory(cell -> new ReadOnlyStringWrapper(plainQuantity(cell.getValue().quantity())));
+        TableColumn<OperationalSalesCart.CartLine, String> cartUnitColumn = new TableColumn<>("Unit.");
+        cartUnitColumn.setCellValueFactory(cell -> new ReadOnlyStringWrapper(formatBrl(cell.getValue().unitPrice())));
+        TableColumn<OperationalSalesCart.CartLine, String> cartLineTotalColumn = new TableColumn<>("Total");
+        cartLineTotalColumn.setCellValueFactory(cell -> new ReadOnlyStringWrapper(formatBrl(cell.getValue().lineTotal())));
+        cartProductColumn.setPrefWidth(170); cartQuantityColumn.setPrefWidth(55);
+        cartUnitColumn.setPrefWidth(85); cartLineTotalColumn.setPrefWidth(95);
+        cartTable.getColumns().setAll(List.of(cartProductColumn, cartQuantityColumn, cartUnitColumn, cartLineTotalColumn));
+        cartTable.setMinHeight(160);
+        VBox.setVgrow(cartTable, Priority.ALWAYS);
+
+        Button quantityMinusButton = new Button("−");
+        Button quantityPlusButton = new Button("+");
+        quantityMinusButton.getStyleClass().add("button-secondary");
+        quantityPlusButton.getStyleClass().add("button-secondary");
+        removeFromCartButton.getStyleClass().add("button-quiet");
+        quantityMinusButton.disableProperty().bind(cartTable.getSelectionModel().selectedItemProperty().isNull());
+        quantityPlusButton.disableProperty().bind(cartTable.getSelectionModel().selectedItemProperty().isNull());
+        removeFromCartButton.disableProperty().bind(cartTable.getSelectionModel().selectedItemProperty().isNull());
+        quantityMinusButton.setOnAction(event -> adjustSelectedCartQuantity(-1));
+        quantityPlusButton.setOnAction(event -> adjustSelectedCartQuantity(1));
+        removeFromCartButton.setOnAction(event -> removeSelectedCartLine());
+        Region cartActionsSpacer = new Region();
+        HBox cartActions = new HBox(8, quantityMinusButton, quantityPlusButton, cartActionsSpacer, removeFromCartButton);
+        cartActions.setAlignment(Pos.CENTER_LEFT);
+        HBox.setHgrow(cartActionsSpacer, Priority.ALWAYS);
+
+        saleSubtotalValue.getStyleClass().add("summary-value");
+        saleTotalValue.getStyleClass().add("summary-total-value");
+        cartStatus.setWrapText(true);
+        cartStatus.getStyleClass().add("muted-text");
+        finalizeSaleButton.getStyleClass().add("button-primary");
+        finalizeSaleButton.setMaxWidth(Double.MAX_VALUE);
+        finalizeSaleButton.setDisable(true);
+        finalizeSaleButton.setOnAction(event -> finalizeSale());
+        VBox saleSummary = new VBox(14,
+                eyebrow("VENDA ATUAL"),
+                cartTable,
+                cartActions,
                 new javafx.scene.control.Separator(),
-                summaryBlock("TOTAL DA VENDA", "R$ 0,00", true),
-                body("Sem itens na venda. A consulta de catálogo não cria uma venda."));
+                summaryRow("SUBTOTAL", saleSubtotalValue, false),
+                summaryRow("TOTAL DA VENDA", saleTotalValue, true),
+                finalizeSaleButton,
+                cartStatus);
         saleSummary.getStyleClass().addAll("surface-card", "sale-summary");
         HBox.setHgrow(saleArea, Priority.ALWAYS);
         saleArea.setMaxWidth(Double.MAX_VALUE);
-        saleSummary.setMinWidth(300);
-        saleSummary.setPrefWidth(350);
-        saleSummary.setMaxWidth(410);
+        saleSummary.setMinWidth(340);
+        saleSummary.setPrefWidth(420);
+        saleSummary.setMaxWidth(520);
         HBox cashierBody = new HBox(18, saleArea, saleSummary);
         cashierBody.setAlignment(Pos.CENTER);
         VBox cashierMain = new VBox(12, productHeader, cashierBody);
@@ -884,9 +955,238 @@ public class LucraOnePdvApplication extends Application {
         logoutButton.setDisable(false);
         cashierClock.setText(DateTimeFormatter.ofPattern("EEE, dd MMM · HH:mm")
                 .withZone(ZoneId.systemDefault()).format(Instant.now()));
+        TerminalRuntime active = runtime;
+        cart = active == null ? null : active.sale().map(OperationalSalesCart::new).orElse(null);
+        cartStatus.setText(cart == null
+                ? "Vendas indisponíveis nesta instalação."
+                : "Sem itens na venda.");
+        refreshCartUi();
+        updateCatalogVersionIndicator();
         showScreen(cashierScreen, "Sessão de caixa aberta");
         if (authorizationMonitor != null) authorizationMonitor.checkNow();
     }
+
+    // ── Cart (current sale) ────────────────────────────────────────────────────
+
+    private void addSelectedProductToCart() {
+        if (cart == null) return;
+        CatalogProduct selected = catalogResults.getSelectionModel().getSelectedItem();
+        if (selected == null) return;
+        try {
+            cart.addUnit(selected);
+            cartStatus.setText(selected.name() + " adicionado à venda.");
+        } catch (RuntimeException error) {
+            cartStatus.setText("Não foi possível adicionar o produto: " + error.getMessage());
+        }
+        refreshCartUi();
+    }
+
+    private void adjustSelectedCartQuantity(int delta) {
+        if (cart == null) return;
+        OperationalSalesCart.CartLine line = cartTable.getSelectionModel().getSelectedItem();
+        if (line == null) return;
+        String productId = line.product().id();
+        BigDecimal next = line.quantity().stripTrailingZeros().add(BigDecimal.valueOf(delta));
+        try {
+            if (next.signum() <= 0) cart.remove(productId);
+            else cart.setQuantity(productId, next);
+            cartStatus.setText("Venda atualizada.");
+        } catch (RuntimeException error) {
+            cartStatus.setText("Não foi possível alterar a quantidade: " + error.getMessage());
+        }
+        refreshCartUi();
+        reselectCartLine(productId);
+    }
+
+    private void removeSelectedCartLine() {
+        if (cart == null) return;
+        OperationalSalesCart.CartLine line = cartTable.getSelectionModel().getSelectedItem();
+        if (line == null) return;
+        cart.remove(line.product().id());
+        cartStatus.setText("Item removido da venda.");
+        refreshCartUi();
+    }
+
+    private void reselectCartLine(String productId) {
+        for (OperationalSalesCart.CartLine line : cartTable.getItems()) {
+            if (line.product().id().equals(productId)) {
+                cartTable.getSelectionModel().select(line);
+                return;
+            }
+        }
+    }
+
+    private void refreshCartUi() {
+        if (cart == null) {
+            cartTable.getItems().clear();
+            saleSubtotalValue.setText("R$ 0,00");
+            saleTotalValue.setText("R$ 0,00");
+            finalizeSaleButton.setDisable(true);
+            return;
+        }
+        cartTable.setItems(FXCollections.observableArrayList(cart.lines()));
+        saleSubtotalValue.setText(formatBrl(cart.subtotal()));
+        saleTotalValue.setText(formatBrl(cart.total()));
+        boolean empty = cart.isEmpty();
+        finalizeSaleButton.setDisable(empty);
+        if (empty) cartStatus.setText("Sem itens na venda.");
+    }
+
+    private void finalizeSale() {
+        OperationalSalesCart active = cart;
+        if (active == null || active.isEmpty()) return;
+        Optional<PaymentChoice> choice = askPayment(active.total());
+        if (choice.isEmpty()) return;
+        PaymentChoice payment = choice.orElseThrow();
+        finalizeSaleButton.setDisable(true);
+        cartStatus.setText("Registrando a venda localmente…");
+        CompletableFuture.supplyAsync(
+                () -> active.checkout(payment.method(), payment.amount(), payment.declaration()), worker)
+                .whenComplete((sale, error) -> Platform.runLater(() -> onSaleFinalized(sale, error)));
+    }
+
+    private void onSaleFinalized(Sale sale, Throwable error) {
+        if (stopped || currentScreen != cashierScreen) return;
+        if (error != null) {
+            Throwable cause = error instanceof CompletionException && error.getCause() != null
+                    ? error.getCause() : error;
+            refreshCartUi(); // checkout failed: the cart is preserved for a retry
+            cartStatus.setText("A venda não foi concluída (" + cause.getMessage()
+                    + "). Os itens foram mantidos para nova tentativa.");
+            return;
+        }
+        refreshCartUi(); // checkout cleared the cart after a successful persistence
+        String change = sale.payment().changeAmount().isZero()
+                ? "" : "  ·  Troco " + formatBrl(sale.payment().changeAmount());
+        cartStatus.setText("Venda registrada localmente: " + formatBrl(sale.totalAmount()) + change
+                + "  ·  nº " + sale.saleId().toString().substring(0, 8));
+    }
+
+    private Optional<PaymentChoice> askPayment(Money total) {
+        Dialog<PaymentChoice> dialog = new Dialog<>();
+        dialog.setTitle("Finalizar venda");
+        dialog.setHeaderText("Total a receber: " + formatBrl(total));
+        ButtonType confirmType = new ButtonType("Confirmar pagamento", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(confirmType, ButtonType.CANCEL);
+
+        ComboBox<PaymentMethod> method = new ComboBox<>();
+        method.getItems().setAll(PaymentMethod.CASH, PaymentMethod.CARD_DEBIT, PaymentMethod.CARD_CREDIT,
+                PaymentMethod.PIX, PaymentMethod.MEAL_VOUCHER, PaymentMethod.FOOD_VOUCHER);
+        method.setValue(PaymentMethod.CASH);
+        method.setMaxWidth(Double.MAX_VALUE);
+        method.setButtonCell(paymentMethodCell());
+        method.setCellFactory(list -> paymentMethodCell());
+        TextField tendered = new TextField(total.toPlainString());
+        Label tenderedLabel = new Label("Valor recebido (dinheiro)");
+        CheckBox confirmation = new CheckBox();
+        confirmation.setWrapText(true);
+        Label methodHint = new Label();
+        methodHint.setWrapText(true);
+        methodHint.getStyleClass().add("muted-text");
+
+        Runnable syncMethod = () -> {
+            PaymentMethod selected = method.getValue();
+            boolean cash = selected == PaymentMethod.CASH;
+            tendered.setDisable(!cash);
+            tenderedLabel.setDisable(!cash);
+            confirmation.setText(switch (selected) {
+                case CASH -> "Confirmo o recebimento em dinheiro.";
+                case CARD_DEBIT, CARD_CREDIT -> "Confirmo que o cartão foi aprovado na maquininha (confirmação externa).";
+                case PIX -> "Confirmo que verifiquei o Pix recebido no canal oficial.";
+                case MEAL_VOUCHER, FOOD_VOUCHER ->
+                        "Confirmo que o ticket foi aprovado no equipamento externo (confirmação manual).";
+                case OTHER -> "";
+            });
+            methodHint.setText(cash ? "O troco é calculado a partir do valor recebido."
+                    : "Pagamento manual: a confirmação pressupõe verificação externa feita pelo operador.");
+        };
+
+        VBox content = new VBox(10, new Label("Forma de pagamento"), method,
+                tenderedLabel, tendered, confirmation, methodHint);
+        content.setPadding(new Insets(12));
+        dialog.getDialogPane().setContent(content);
+
+        Node confirmButton = dialog.getDialogPane().lookupButton(confirmType);
+        Runnable validate = () -> {
+            boolean ok = confirmation.isSelected();
+            if (method.getValue() == PaymentMethod.CASH) {
+                try {
+                    ok = ok && new BigDecimal(tendered.getText().strip()).compareTo(total.amount()) >= 0;
+                } catch (RuntimeException invalid) {
+                    ok = false;
+                }
+            }
+            confirmButton.setDisable(!ok);
+        };
+        method.valueProperty().addListener((observable, oldValue, newValue) -> { syncMethod.run(); validate.run(); });
+        confirmation.selectedProperty().addListener((observable, oldValue, newValue) -> validate.run());
+        tendered.textProperty().addListener((observable, oldValue, newValue) -> validate.run());
+        syncMethod.run();
+        validate.run();
+
+        dialog.setResultConverter(button -> {
+            if (button != confirmType) return null;
+            PaymentMethod selected = method.getValue();
+            String amount = selected == PaymentMethod.CASH ? tendered.getText().strip() : total.toPlainString();
+            ManualPaymentDeclaration declaration = switch (selected) {
+                case CASH -> ManualPaymentDeclaration.CASH_RECEIVED;
+                case CARD_DEBIT, CARD_CREDIT -> ManualPaymentDeclaration.EXTERNAL_CARD_APPROVED;
+                case PIX -> ManualPaymentDeclaration.PIX_OFFICIAL_CHANNEL_CHECKED;
+                case MEAL_VOUCHER, FOOD_VOUCHER -> ManualPaymentDeclaration.EXTERNAL_VOUCHER_APPROVED;
+                case OTHER -> null;
+            };
+            return new PaymentChoice(selected, amount, declaration);
+        });
+        return dialog.showAndWait();
+    }
+
+    private static javafx.scene.control.ListCell<PaymentMethod> paymentMethodCell() {
+        return new javafx.scene.control.ListCell<>() {
+            @Override protected void updateItem(PaymentMethod item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : paymentMethodLabel(item));
+            }
+        };
+    }
+
+    private static String paymentMethodLabel(PaymentMethod method) {
+        return switch (method) {
+            case CASH -> "Dinheiro";
+            case CARD_DEBIT -> "Cartão de débito (manual)";
+            case CARD_CREDIT -> "Cartão de crédito (manual)";
+            case PIX -> "Pix (manual)";
+            case MEAL_VOUCHER -> "Ticket refeição (manual)";
+            case FOOD_VOUCHER -> "Ticket alimentação (manual)";
+            case OTHER -> "Outro";
+        };
+    }
+
+    private void updateCatalogVersionIndicator() {
+        catalogVersionLabel.setText("Catálogo local: verificando…");
+        TerminalRuntime active = runtime;
+        if (active == null || active.catalog().isEmpty()) {
+            catalogVersionLabel.setText("Catálogo local indisponível.");
+            return;
+        }
+        active.catalog().orElseThrow().activeCatalogInfo().whenComplete((info, error) -> Platform.runLater(() -> {
+            if (stopped || currentScreen != cashierScreen) return;
+            if (error != null) {
+                catalogVersionLabel.setText("Catálogo local ativo — não foi possível ler a versão.");
+                return;
+            }
+            if (info == null || info.isEmpty()) {
+                catalogVersionLabel.setText("Catálogo local ainda não sincronizado para este terminal.");
+                return;
+            }
+            ActiveCatalogInfo value = info.orElseThrow();
+            String when = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")
+                    .withZone(ZoneId.systemDefault()).format(value.activatedAt());
+            catalogVersionLabel.setText("Catálogo local: versão " + value.version() + "  ·  "
+                    + value.productCount() + " produto(s)  ·  ativado em " + when);
+        }));
+    }
+
+    private record PaymentChoice(PaymentMethod method, String amount, ManualPaymentDeclaration declaration) { }
 
     private void searchCatalog(boolean nextPage) {
         catalogDebounce.stop();
@@ -1036,6 +1336,26 @@ public class LucraOnePdvApplication extends Application {
         return format.format(price.amount());
     }
 
+    private static String formatBrl(Money money) {
+        NumberFormat format = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("pt-BR"));
+        format.setCurrency(java.util.Currency.getInstance("BRL"));
+        return format.format(money.amount());
+    }
+
+    private static String plainQuantity(BigDecimal quantity) {
+        return quantity.stripTrailingZeros().toPlainString();
+    }
+
+    private static HBox summaryRow(String title, Label value, boolean total) {
+        Label key = new Label(title);
+        key.getStyleClass().add(total ? "summary-total-label" : "muted-text");
+        Region spacer = new Region();
+        HBox row = new HBox(key, spacer, value);
+        row.setAlignment(Pos.CENTER_LEFT);
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        return row;
+    }
+
     private void showLoginError(String message) {
         loginError.setText(message);
         loginError.setVisible(true);
@@ -1056,6 +1376,9 @@ public class LucraOnePdvApplication extends Application {
             catalogNextCursor = null;
             catalogNextPageButton.setVisible(false);
             catalogNextPageButton.setManaged(false);
+            cart = null;
+            refreshCartUi();
+            cartStatus.setText("Sem itens na venda.");
         }
         currentScreen = screen;
         root.getChildren().setAll(screenHeader(status), screenFrame(screen), appFooter());

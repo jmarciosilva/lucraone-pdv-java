@@ -8,6 +8,7 @@ import br.com.lucraone.pdv.application.operator.OperatorSessionService;
 import br.com.lucraone.pdv.application.catalog.CatalogDistributionService;
 import br.com.lucraone.pdv.application.catalog.OfflineCatalogQueryService;
 import br.com.lucraone.pdv.application.auth.TerminalHeartbeatService;
+import br.com.lucraone.pdv.application.sale.SaleService;
 import br.com.lucraone.pdv.infrastructure.api.HttpPdvBackendGateway;
 import java.util.Optional;
 
@@ -17,7 +18,7 @@ public record TerminalRuntime(TerminalAuthenticationService authentication, bool
         Optional<CredentialRotationService> rotation, Optional<CredentialRecoveryService> recovery,
         Optional<CredentialRenewalService> renewal,
         Optional<OfflineCatalogQueryService> catalog, Optional<CatalogDistributionService> catalogDistribution,
-        Optional<TerminalHeartbeatService> heartbeat)
+        Optional<TerminalHeartbeatService> heartbeat, Optional<SaleService> sale)
         implements AutoCloseable {
     @Override public void close() {
         renewal.ifPresent(CredentialRenewalService::close);

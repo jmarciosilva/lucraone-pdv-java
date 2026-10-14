@@ -157,6 +157,7 @@ public final class JdbcSaleRepository implements SaleRepository {
             case CASH -> "CASH_RECEIVED";
             case CARD_DEBIT, CARD_CREDIT -> "EXTERNAL_CARD_APPROVED";
             case PIX -> "PIX_OFFICIAL_CHANNEL_CHECKED";
+            case MEAL_VOUCHER, FOOD_VOUCHER -> "EXTERNAL_VOUCHER_APPROVED";
             case OTHER -> throw new IllegalArgumentException("OTHER is disabled for manual payments.");
         };
     }

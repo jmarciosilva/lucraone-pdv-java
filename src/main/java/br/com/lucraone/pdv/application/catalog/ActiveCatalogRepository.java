@@ -7,4 +7,9 @@ public interface ActiveCatalogRepository {
     Optional<CatalogProduct> findById(CatalogCacheContext context, String productId);
     CatalogPage search(CatalogCacheContext context, String search, int perPage, String cursor);
     BarcodeResolution resolveBarcode(CatalogCacheContext context, String barcode);
+
+    /** Version, activation time and product count of the active snapshot, if any is activated. */
+    default Optional<ActiveCatalogInfo> activeCatalogInfo(CatalogCacheContext context) {
+        return Optional.empty();
+    }
 }

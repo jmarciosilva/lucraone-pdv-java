@@ -46,10 +46,10 @@ class SalesMigrationTest {
     }
 
     @Test
-    void fullMigrationSequenceV1ToV9AppliesCleanly() throws Exception {
+    void fullMigrationSequenceV1ToV10AppliesCleanly() throws Exception {
         var factory = allMigrations();
         try (Connection conn = factory.openConnection()) {
-            assertEquals(9, queryInt(conn,
+            assertEquals(10, queryInt(conn,
                     "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1"));
         }
     }
@@ -174,6 +174,61 @@ class SalesMigrationTest {
         try (Connection conn = factory.openConnection()) {
             assertThrows(SQLException.class, () ->
                 insertSaleWithOverride(conn, ID_1, "CONFIRMED", "BR", "CASH"));
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // V10 — six payment modalities
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void v10AcceptsVoucherPaymentMethodsInSale() throws Exception {
+        var factory = allMigrations();
+        try (Connection conn = factory.openConnection()) {
+            insertSaleWithOverride(conn, ID_1, "CONFIRMED", "BRL", "MEAL_VOUCHER");
+            insertSaleWithOverride(conn, "00000000-0000-4000-8000-000000000002", "CONFIRMED", "BRL", "FOOD_VOUCHER");
+            assertEquals(2, queryInt(conn,
+                    "SELECT COUNT(*) FROM pdv_sale WHERE payment_method IN ('MEAL_VOUCHER','FOOD_VOUCHER')"));
+        }
+    }
+
+    @Test
+    void v10AcceptsVoucherManualAttemptWithVoucherDeclaration() throws Exception {
+        var factory = allMigrations();
+        try (Connection conn = factory.openConnection()) {
+            insertDeclaredAttempt(conn, "00000000-0000-4000-8000-0000000000a1",
+                    "00000000-0000-4000-8000-0000000000a2", "FOOD_VOUCHER", "EXTERNAL_VOUCHER_APPROVED");
+            assertEquals(1, queryInt(conn,
+                    "SELECT COUNT(*) FROM pdv_manual_payment_attempt WHERE payment_method = 'FOOD_VOUCHER'"));
+        }
+    }
+
+    @Test
+    void v10RejectsVoucherAttemptWithMismatchedDeclaration() throws Exception {
+        var factory = allMigrations();
+        try (Connection conn = factory.openConnection()) {
+            assertThrows(SQLException.class, () -> insertDeclaredAttempt(conn,
+                    "00000000-0000-4000-8000-0000000000a3", "00000000-0000-4000-8000-0000000000a4",
+                    "MEAL_VOUCHER", "CASH_RECEIVED"));
+        }
+    }
+
+    @Test
+    void v10PreservesExistingSalesAcrossTheRebuild() throws Exception {
+        var factory = migrationsUpTo("9");
+        try (Connection conn = factory.openConnection()) {
+            insertSale(conn, ID_1);
+        }
+        Flyway.configure()
+                .dataSource(factory.jdbcUrl(), null, null)
+                .locations("classpath:db/migration")
+                .cleanDisabled(true)
+                .load()
+                .migrate();
+        try (Connection conn = factory.openConnection()) {
+            assertEquals(1, queryInt(conn, "SELECT COUNT(*) FROM pdv_sale WHERE sale_id = '" + ID_1 + "'"));
+            assertEquals(1, queryInt(conn,
+                    "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '10' AND success = 1"));
         }
     }
 
@@ -309,6 +364,26 @@ class SalesMigrationTest {
             ps.setString(2, status);
             ps.setString(3, currency);
             ps.setString(4, paymentMethod);
+            ps.setString(5, AT);
+            ps.setString(6, AT);
+            ps.executeUpdate();
+        }
+    }
+
+    private void insertDeclaredAttempt(Connection conn, String confirmationId, String saleId,
+            String paymentMethod, String declarationType) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO pdv_manual_payment_attempt (" +
+                "confirmation_id,sale_id,terminal_id,tenant_id,company_id,branch_id," +
+                "prepared_by_operator_id,prepared_by_operator_name,currency,subtotal_amount," +
+                "discount_amount,total_amount,payment_method,origin,state,payment_amount,change_amount," +
+                "declaration_type,declared_by_operator_id,declared_by_operator_name,declared_at,created_at) " +
+                "VALUES (?,?, 't1','tn1','c1','b1','op1','Caixa','BRL','10.00','0.00','10.00', ?, " +
+                "'MANUAL','DECLARED','10.00','0.00', ?, 'op1','Caixa', ?, ?)")) {
+            ps.setString(1, confirmationId);
+            ps.setString(2, saleId);
+            ps.setString(3, paymentMethod);
+            ps.setString(4, declarationType);
             ps.setString(5, AT);
             ps.setString(6, AT);
             ps.executeUpdate();
